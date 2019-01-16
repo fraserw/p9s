@@ -1,6 +1,15 @@
 # p9s
-Code moved to python from idl
 
-requires numpy, scipy, sep, astropy
+Base
+====
+Code moved to python from idl.
 
-Built on anaconda python3
+All the code pieces necessary for the basic planet 9 search. 
+
+Requirements
+============
+Python: numpy, scipy, sep, astropy
+
+Recommend  anaconda python3.
+
+Other: sextractor.
