@@ -24,11 +24,16 @@ def searchBrick(brick,match_radius=0.75,slow_time=0.5,stat_radius=0.2,min_det_fo
     wstat = np.full(brick.ra.shape,False,dtype='bool')
 
     n_det = len(brick.ra)
+    print('Number of detections to consider: {}'.format(n_det))
     for ii in range(n_det):
         #skip those already marked as stationary
         if not wf[ii]: continue
 
-        if brick.snr[ii]>snr_min: continue
+        if brick.snr[ii]<snr_min:
+            wf[ii] = False
+            ws[ii] = False
+            wstat[ii] = False
+            continue
 
         #fast distance estimate in ra/dec
         w_rd = np.where( (np.abs(brick.ra-brick.ra[ii])<0.0003/np.cos(brick.dec[ii]*d2r)) & (np.abs(brick.dec-brick.dec[ii])<0.0003) & (brick.snr>snr_min) & (brick.ra[ii]!=brick.ra) & (brick.dec[ii]!=brick.dec) & (brick.jd[ii]!=brick.jd))
@@ -84,7 +89,7 @@ def searchBrick(brick,match_radius=0.75,slow_time=0.5,stat_radius=0.2,min_det_fo
 
 
 if __name__ == "__main__":
-    import glob
+    import glob,sys
 
     match_radius = 0.75 #arcseconds
     slow_time = 12.0/24.0 #12 hours into JD ,_ no moving object is stationary for 12 hours!
@@ -95,10 +100,24 @@ if __name__ == "__main__":
     snr_min = 5.0
 
     brick_files = glob.glob(masterDir+'/bricks/*brick')
-    print(len(brick_files))
-    exit()
-    for i in range(0,len(brick_files)):
-        print(brick_files[i])
+
+
+    dos = [
+
+    ]
+
+    start = 0
+    step = 1
+    if len(sys.argv)>1:
+        start = int(float(sys.argv[1]))
+        step = int(float(sys.argv[2]))
+
+    for i in range(start,len(brick_files),step):
+        if brick_files[i].split('/')[-1] not in dos and len(dos)>0:
+            continue
+
+        print(brick_files[i],i+1,len(brick_files))
+
         with open(brick_files[i],'rb') as han:
             brick = pickle.load(han)
 
@@ -109,3 +128,4 @@ if __name__ == "__main__":
         #print('Number of unassigned sources is',len(unassigned[0]))
         print('Number of slow transients is',len(np.where(brick.ws==True)[0]))
         pickle.dump(brick,open(brick_files[i],'wb'))
+        print('')

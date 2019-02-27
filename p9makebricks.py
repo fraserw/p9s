@@ -50,12 +50,9 @@ if __name__ == "__main__":
     from paths import *
 
 
-    if len(sys.argv[1])==1:
-        if sys.argv[1] != '--diff':
-            print('Pass --diff to open the difference catalog.')
-            exit()
+    if len(sys.argv)==1:
 
-
+        #saveFiles = glob.glob(masterDir+'/*/HSC-R2/corr/sexSaves/*sex_save')
         saveFiles = glob.glob(masterDir+'/*/HSC-R2/corr/sexSaves/*sex_save')
         saveFiles.sort()
 
@@ -106,6 +103,11 @@ if __name__ == "__main__":
 
             pickle.dump(bricks[bnu],open(bricksPath+'/'+str(bnu)+'.brick','wb'))
     else:
+        if sys.argv[1] != '--diff':
+            print('Pass --diff to open the difference catalog.')
+            exit()
+
+
         catalogPath = masterDir+'/DiffCatalog/Candidates_R2_with_frame_xy.dat'
         bricksPath = masterDir+'/DiffCatalog/bricks'
         if not path.exists(bricksPath):

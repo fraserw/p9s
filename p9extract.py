@@ -12,10 +12,39 @@ import scamp
 import pickle
 
 from catObj import catObj
-apertures = {2:0,3:0,4:0,5:0,6:1,7:1,8:2,9:2,10:3,11:3,12:4,13:4}
+apertures = {2:0,3:0,4:0,5:0,6:1,7:1,8:2,9:2,10:3,11:3,12:4,13:4,14:4,15:4,16:4,17:4,18:4,19:4,20:4}
 
 
-def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includeImageMask = False):
+def getMeanMagDiff(maper,diff):
+    bins = np.arange(int(np.min(maper)),int(np.max(maper))+1)
+    k = (maper-bins[0]).astype('int')
+    meds = []
+    stds = []
+    for ii in range(len(bins)):
+        w = np.where(k==ii)
+        if len(w[0])>5:
+            meds.append(np.nanmedian(diff[w]))
+            stds.append(np.nanstd(diff[w]))
+        else:
+            meds.append(np.nan)
+            stds.append(np.nan)
+    meds = np.array(meds)
+    stds = np.array(stds)
+
+    if np.sum(np.isnan(meds))>len(meds)-3:
+        return np.nan
+
+    w = np.where(np.isnan(stds)==0)
+    meds = meds[w]
+    stds = stds[w]
+    bins = bins[w]
+    weight = 1.0/stds**2
+    mean = np.sum(meds*weight)/np.sum(weight)
+
+    return mean
+
+
+def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includeImageMask = False, kron_cut = 0.8):
 
     if path.isfile(mask_file):
         mask = mask_file+'[0]'
@@ -71,13 +100,6 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
     catObject.astrms = header['WCS_RMS']
 
 
-    if not path.isfile('default.conv'):
-        scamp.makeParFiles.writeConv(overwrite=True)
-    if not path.isfile('subaru_LDAC.sex'):
-        os.system('cp /home/fraserw/idl_progs/hscp9/sextract/subaru_LDAC.sex .')
-    if not path.isfile('sextract.param'):
-        os.system('cp /home/fraserw/idl_progs/hscp9/sextract/sextract.param .')
-
 
     if showProgress:
         pyl.imshow(data, interpolation='nearest', cmap='gray', origin='lower')
@@ -91,26 +113,55 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
 
     catalog = scamp.getCatalog(savesPath+fn.replace('.fits','.cat'),paramFile='sextract.param')
 
-    if catObject.seeing < 0:
+    #get rid of the flux=0 sources
+    #w = np.where((catalog['FLUX_APER(5)'][:,apNum]>0) & (catalog['FLUX_AUTO']>0))
+    w = np.where((catalog['FLUX_APER(5)'][:,0]>0) & (catalog['FLUX_APER(5)'][:,1]>0) & (catalog['FLUX_APER(5)'][:,2]>0) & (catalog['FLUX_APER(5)'][:,3]>0) & (catalog['FLUX_APER(5)'][:,4]>0) & (catalog['FLUX_AUTO']>0))
+    for key in catalog:
+        catalog[key] = catalog[key][w]
+
+
+    if catObject.seeing <= 0:
         #need to estimate seeing because header value is non-sense
-        FWHM_IMAGE = np.sort(catalog['FWHM_IMAGE'][np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<2045) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<2045)& (catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum]>3) )])
+        #use all snr>40 sources, and take the median FWHM_IMAGE value
+        FWHM_IMAGE = np.sort(catalog['FWHM_IMAGE'][np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) & (catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum]>40) )])
         #fwhm_mode = FWHM_IMAGE[len(FWHM_IMAGE)/2]
         fwhm_median = np.median(FWHM_IMAGE)
         catObject.seeing = fwhm_median
         apNum = apertures[round(catObject.seeing)]
 
 
-    #get rid of the flux=0 sources
-    w = np.where(catalog['FLUX_APER(5)'][:,apNum]>0)
-    for key in catalog:
-        catalog[key] = catalog[key][w]
+
+    #setup cut on Kron magnitude, by getting the median difference between kron and aperture magnitude for star-like objects.
+    w = np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) &  ((catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum])>40) & (catalog['FWHM_IMAGE']>1.5))
+
+    mag_aper = -2.5*np.log10(catalog['FLUX_APER(5)'][:,apNum][w]/header['EXPTIME'])+header['MAGZERO']
+    mag_auto = -2.5*np.log10(catalog['FLUX_AUTO'][w]/header['EXPTIME'])+header['MAGZERO']
+
+    mag_diff = mag_auto - mag_aper
+    med_mag_diff = getMeanMagDiff(mag_aper,mag_diff)
 
     snr = catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum]
 
+    #cut on position, SNR, and FWHM
     if catObject.seeing>0:
-        w = np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<2045) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<2045) & (catalog['FWHM_IMAGE']<catObject.seeing*10.0) & (snr>3) )
+        w = np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<2045) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<4173) & (catalog['FWHM_IMAGE']<catObject.seeing*5.0) & (snr>3) & (catalog['FWHM_IMAGE']>1.5) & (catalog['A_IMAGE']>1.0) & (catalog['B_IMAGE']>1.0) )
     else:
-        w = np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<2045) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<2045) & (catalog['FWHM_IMAGE']<4.0) & (snr>3) )
+        w = np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<2045) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<4173) & (catalog['FWHM_IMAGE']<10.0) & (snr>3) & (catalog['FWHM_IMAGE']>1.5) & (catalog['A_IMAGE']>1.5) & (catalog['B_IMAGE']>1.0) ) #now measured in arcseconds rather than in units of FWHM
+
+
+
+    #now cut on difference between kron and aperture magnitudes, assuming there were enough sources for the cut
+    if not np.isnan(med_mag_diff):
+        mag_aper = -2.5*np.log10(catalog['FLUX_APER(5)'][:,apNum][w]/header['EXPTIME'])+header['MAGZERO']
+        mag_auto = -2.5*np.log10(catalog['FLUX_AUTO'][w]/header['EXPTIME'])+header['MAGZERO']
+        kron = catalog['KRON_RADIUS'][w]
+        mag_diff = mag_auto-mag_aper-med_mag_diff
+        w = [w[0][np.where(np.abs(mag_diff)<kron_cut)]]
+        #pyl.scatter(mag_aper,mag_diff)
+        #print(len(w[0]))
+        #pyl.scatter(mag_aper[np.where(np.abs(mag_diff)<kron_cut)],mag_diff[np.where(np.abs(mag_diff)<kron_cut)])
+        #pyl.show()
+        #exit()
 
 
     catObject.fwhm_image = catalog['FWHM_IMAGE'][w]
@@ -220,60 +271,106 @@ def runSex_sep(file,fn,chip,mask_file,showProgress = False):
     return obj
 
 
-#sep.set_extract_pixstack(sepPixStack)
+if __name__ == "__main__":
+    #sep.set_extract_pixstack(sepPixStack)
 
+    kron_cut = 0.7
 
-savesPath = sourceDir+'/sexSaves/'
+    savesPath = sourceDir+'/sexSaves/'
 
-files = glob.glob(sourceDir+'/*fits')
-files.sort()
-
-"""
-Files = []
-for i in range(len(files)-1,-1,-1):
-    Files.append(files[i])
-files = Files[:]
-"""
-
-if not path.exists(savesPath):
-    os.mkdir(savesPath)
-
-mask_files = glob.glob(masksDir+'/mask*fits')
-mask_files.sort()
-
-showProgress = False
+    Files = glob.glob(sourceDir+'/*fits')
+    Files.sort()
 
 
 
+    overWrite = False
+    if not overWrite:
+        files = []
+        for i in range(len(Files)):
+            s = Files[i].split('/')
+            fn = '/'.join(s[:6])+'/sexSaves/'+s[6].replace('.fits','.sex_save')
 
-singleThread = False
-if singleThread:
-    for i in range(len(files)-1,-1,-1):
-        fn = files[i].split('/')[-1]
-        chip = int(float( fn.split('-')[2].split('.')[0]))
-        file = files[i]
+            if not path.isfile(fn):
+                files.append(Files[i])
+    else:
+        files = Files[:]
 
-        print(file)
-        mask_file = '/home/fraserw/idl_progs/hscp9/sextract/mask'+str(chip).zfill(3)+'.fits'
+    if not path.exists(savesPath):
+        os.mkdir(savesPath)
 
-        #print(fn,chip)
-        catalog = runSex(file,fn,chip,mask_file,showProgress = False, verbose = False, includeImageMask = True)
+    mask_files = glob.glob(masksDir+'/mask*fits')
+    mask_files.sort()
 
-    exit()
-
-else:
-    numCores = 12
+    showProgress = False
 
 
-    #attempt at multiprocessing with runSex which seems to fail
+    if not path.isfile('default.conv'):
+        scamp.makeParFiles.writeConv(overwrite=True)
+    if not path.isfile('subaru_LDAC.sex'):
+        os.system('cp /home/fraserw/idl_progs/hscp9/sextract/subaru_LDAC.sex .')
+    if not path.isfile('sextract.param'):
+        os.system('cp /home/fraserw/idl_progs/hscp9/sextract/sextract.param .')
+
+
+
+    singleThread = False
+    if singleThread:
+        for i in range(len(files)-1,-1,-1):
+            fn = files[i].split('/')[-1]
+            chip = int(float( fn.split('-')[2].split('.')[0]))
+            file = files[i]
+
+            #if file!='/media/fraserw/Thumber/FEB2018/02231/HSC-R2/corr/CORR-0139062-091.fits': continue
+            print(file)
+            mask_file = '/home/fraserw/idl_progs/hscp9/sextract/mask'+str(chip).zfill(3)+'.fits'
+
+            #print(fn,chip)
+            catalog = runSex(file,fn,chip,mask_file,showProgress = False, verbose = True, includeImageMask = True)
+
+        exit()
+
+    else:
+        numCores = 10
+
+
+        #attempt at multiprocessing with runSex which seems to fail
+        #using Queue
+        q = multip.Queue()
+        i = 0
+        while i < len(files)+1:
+
+            processes = []
+            for j in range(numCores):
+                if i+j == len(files):
+                    break
+                fn = files[i+j].split('/')[-1]
+                chip = int(float( fn.split('-')[2].split('.')[0]))
+                file = files[i+j]
+                mask_file = '/home/fraserw/idl_progs/hscp9/sextract/mask'+str(chip).zfill(3)+'.fits'
+                #print(file,chip)
+
+
+
+                processes.append(multip.Process(target=runSex,args=(file,fn,chip,mask_file,False,False,True,kron_cut)))
+                processes[j].start()
+
+            for j in range(len(processes)):
+                processes[j].join()
+
+            i+=numCores
+    """
+    numCores = 2
+
+
+    #attempt at multiprocessing with runSex_sep which seems to fail
     #using Queue
     q = multip.Queue()
-    i = 0
-    while i < len(files)+1:
+    for i in range(0,len(files),numCores):
+
 
         processes = []
         for j in range(numCores):
-            if i+j == len(files):
+            if i+j+1 == len(files):
                 break
             fn = files[i+j].split('/')[-1]
             chip = int(float( fn.split('-')[2].split('.')[0]))
@@ -283,38 +380,9 @@ else:
 
 
 
-            processes.append(multip.Process(target=runSex,args=(file,fn,chip,mask_file,False,False,True)))
+            processes.append(multip.Process(target=runSex,args=(file,fn,chip,mask_file)))
             processes[j].start()
 
         for j in range(len(processes)):
             processes[j].join()
-
-        i+=numCores
-"""
-numCores = 2
-
-
-#attempt at multiprocessing with runSex_sep which seems to fail
-#using Queue
-q = multip.Queue()
-for i in range(0,len(files),numCores):
-
-
-    processes = []
-    for j in range(numCores):
-        if i+j+1 == len(files):
-            break
-        fn = files[i+j].split('/')[-1]
-        chip = int(float( fn.split('-')[2].split('.')[0]))
-        file = files[i+j]
-        mask_file = '/home/fraserw/idl_progs/hscp9/sextract/mask'+str(chip).zfill(3)+'.fits'
-        #print(file,chip)
-
-
-
-        processes.append(multip.Process(target=runSex,args=(file,fn,chip,mask_file)))
-        processes[j].start()
-
-    for j in range(len(processes)):
-        processes[j].join()
-"""
+    """

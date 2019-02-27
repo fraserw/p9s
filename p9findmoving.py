@@ -52,15 +52,43 @@ def idl_hashtag(big_arr,xhat,yhat,zhat,i):
 if __name__ == "__main__":
     import glob,os,sys,pickle
     from os import path
+    import time as Time
 
-    if '--fast' in sys.argv:
+    if '--veryfast' in sys.argv:
         maxdays = 9.0 #max separation between centre and final/initial day
         slow_time = 0.5#12 #time in hours to look for motion
-        fastestp9 = 9.0 #arcsec/hr of fastest p9
+        fastestp9 = 6.0 #arcsec/hr of fastest p9
 
         min_dist = 20.0 #Minimum distance to probe
-        max_dist = 1500.0
+        max_dist = 70.0
         dist_step = 0.1
+
+        n_min_det = 4
+
+        showDS9string = True
+
+        pathString = 'veryfast_blinks'
+
+        print('Searching for very fast movers!')
+
+
+    elif '--fast' in sys.argv:
+        maxdays = 9.0 #max separation between centre and final/initial day
+        slow_time = 0.5#12 #time in hours to look for motion
+        fastestp9 = 3.0 #arcsec/hr of fastest p9
+
+        min_dist = 60.0 #Minimum distance to probe
+        max_dist = 250.0
+        dist_step = 0.1
+
+        n_min_det = 4
+
+        showDS9string = True
+
+        pathString = 'fast_blinks'
+
+        print('Searching for fast movers!')
+
     else:
         maxdays = 9.0 #max separation between centre and final/initial day
         slow_time = 1.0#12 #time in hours to look for motion
@@ -71,7 +99,13 @@ if __name__ == "__main__":
         max_dist = 1500.0
         dist_step = 0.5
 
-    n_min_det = 3
+        n_min_det = 3
+
+        pathString = 'blinks'
+
+        showDS9string = False
+
+
 
     #distance range to test
     dist_range = np.arange(min_dist,max_dist,dist_step)  #(200,1500,1)
@@ -82,14 +116,16 @@ if __name__ == "__main__":
 
     Earth = earth.Earth()
 
+    #masterDir = '/media/fraserw/rocketdata/SEP2017'
+
     if len(sys.argv)>2:
         if '--diff' in sys.argv:
             masterDir += '/DiffCatalog'
         else:
-            print('Were you trying to use the diff catalog? If so, pass --diff.')
-            exit()
+            print('Were you trying to use the diff catalog? If so, pass --diff.\n')
+            #exit()
 
-    blinksPath = masterDir+'/blinks'
+    blinksPath = masterDir+'/'+pathString
 
     if not path.exists(blinksPath):
         os.mkdir(blinksPath)
@@ -101,14 +137,14 @@ if __name__ == "__main__":
 
 
 
-    bn_i = 100
+    bn_i = 0
     if len(sys.argv)>1:
         bn_i = int(float(sys.argv[1]))
 
-    for i in range(len(brick_files)):
-        if '47097' in brick_files[i]:
-            print(i,brick_files[i])
-            bn_i = i
+    #for i in range(len(brick_files)):
+    #    if '92116' in brick_files[i]:
+    #        print(i,brick_files[i])
+    #        bn_i = i
     #exit()
 
     print(brick_files[bn_i])
@@ -119,6 +155,9 @@ if __name__ == "__main__":
     blinkfn = blinksPath+'/blink.'+str(bn)
     if '--fast' in sys.argv:
         blinkfn = blinksPath+'/blink_fast.'+str(bn)
+    elif '--veryfast' in sys.argv:
+        blinkfn = blinksPath+'/blink_veryfast.'+str(bn)
+
 
 
     #print(brick.ra)
@@ -167,8 +206,11 @@ if __name__ == "__main__":
                         getBrickNum(trans.ra,trans.dec+mxd)[0]])
     bb_unique = np.sort(np.unique(bb))
 
-    #print("remove this line below before production runs")
+    ##########
+    #print("!!!!!!!!!remove this line in the code below before production runs!!!!!!!!!!!!")
     #bb_unique = []
+    ###########
+
     for bb in bb_unique:
 
         if bb == bn: continue
@@ -270,15 +312,32 @@ if __name__ == "__main__":
     #trans.wstat = trans.wstat[args]
     trans.brick = trans.brick[args]
 
+    dmag = 1.09/trans.snr
 
+
+
+
+    tl, tb = [], []
     coords = SkyCoord(trans.ra*u.deg,trans.dec*u.deg,frame = 'icrs')
     ecl_coords = np.array(coords.transform_to('barycentrictrueecliptic'))
-    tl, tb = [], []
     for j in range(len(ecl_coords)):
         tl.append(ecl_coords[j].lon.degree)
         tb.append(ecl_coords[j].lat.degree)
+    #step = 1000
+    #i = 0
+    #while i<len(trans.ra):
+    #
+    #    t1=Time.time()
+    #    coords = SkyCoord(trans.ra[i:i+step]*u.deg,trans.dec[i:i+step]*u.deg,frame = 'icrs')
+    #    ecl_coords = np.array(coords.transform_to('barycentrictrueecliptic'))
+    #    for j in range(len(ecl_coords)):
+    #        tl.append(ecl_coords[j].lon.degree)
+    #        tb.append(ecl_coords[j].lat.degree)
+    #    print(i,len(trans.ra),Time.time()-t1)
+    #    i+=step
     tl = np.array(tl)*d2r
     tb = np.array(tb)*d2r
+
 
     used = np.zeros(len(tl)) #10 when used, otherwise some other value
 
@@ -313,6 +372,7 @@ if __name__ == "__main__":
 
 
 
+
     print(strt,stp)
 
     if add_test_mover:
@@ -324,8 +384,6 @@ if __name__ == "__main__":
         stp = w[0][0]+1
         print(strt,stp)
         ######################################
-
-
 
 
     movers = []
@@ -343,44 +401,18 @@ if __name__ == "__main__":
         dforward = np.max(time-time[i])*fastestp9/3600.0
         dmax = max(dforward,dback)
 
+        mag_diff_lim = 1.3+dmag[i]
+
         #mike comment
         # I am only looking at this with HIGHER ra in the past.    xe = np.sum(big_arr[:,0]*xhat[:,0] + big_arr[:,1]*xhat[:,1] + big_arr[:,2]*xhat[:,2])
 
 	    # implicitly assuming retrograde motion here!
         dra = trans.ra[i]-trans.ra
         ddec = trans.dec[i]-trans.dec
-        w1 = np.where( (time[i] - time > slow_time) & (np.abs(ddec)<dback) & (np.abs(dra)*np.cos(trans.dec[i]*d2r) < dback) & (used<10))
-        w2 = np.where( (time - time[i] > slow_time) & (np.abs(ddec)<dforward) & (np.abs(dra)*np.cos(trans.dec[i]*d2r) < dforward) & (used<10))
+        w1 = np.where( (time[i] - time > slow_time) & (np.abs(ddec)<dback) & (np.abs(dra)*np.cos(trans.dec[i]*d2r) < dback) & (np.abs(trans.mag[i]-trans.mag)<mag_diff_lim) &(used<10))
+        w2 = np.where( (time - time[i] > slow_time) & (np.abs(ddec)<dforward) & (np.abs(dra)*np.cos(trans.dec[i]*d2r) < dforward) & (np.abs(trans.mag[i]-trans.mag)<mag_diff_lim) & (used<10))
 
-        """
-        #[28] [257 266] [746 772]
-        print(np.where(np.abs(trans.dec-7.3801904)<0.00001))
-        print(trans.ra[28],trans.dec[28],trans.jd[28])
 
-        ind_0 = np.where((trans.jd==2458460.7224316)&(np.abs(trans.ra-47.7770759)<0.00001))[0]
-        ind_1 = np.where((trans.jd==2458460.8396188)&(np.abs(trans.ra-47.7768938)<0.00001))[0]
-        ind_2 = np.where((trans.jd==2458462.7140982)&(np.abs(trans.ra-47.7722642)<0.00001))[0]
-        print(ind_0,ind_1,ind_2)
-        print(trans.dec[ind_0],trans.dec[ind_1],trans.dec[ind_2])
-        print(trans.ra[np.array([432,445,462])])#*np.cos(trans.dec[i]*d2r),dback)
-        exit()
-        """
-        #print(w1,w2)
-
-        #print(np.where((trans.ra==fake_ra[0])&(trans.dec==fake_dec[0])&(trans.jd==fake_t[0])))
-        ##print(np.where((trans.ra==fake_ra[1])&(trans.dec==fake_dec[1])&(trans.jd==fake_t[1])))
-        #print(np.where((trans.ra==fake_ra[2])&(trans.dec==fake_dec[2])&(trans.jd==fake_t[2])))
-        """
-        w3 = np.where((trans.ra==fake_ra[2])&(trans.dec==fake_dec[2])&(trans.jd==fake_t[2]))[0]
-        print(w3)
-        print(time[w3]-time[i]>slow_time)
-        print(np.abs(ddec[w3])<dback)
-        print(dra[w3]*np.cos(trans.dec[i]*d2r) < dforward)
-        print(used[w3]<10)
-        print(dra[w3]>0)
-        print(dra[w3])
-        exit()
-        """
 
         if len(w1[0])>0 and len(w2[0])>0:
             d1 = gc_dist(trans.ra[i],trans.dec[i],trans.ra[w1],trans.dec[w1])*3600.0
@@ -428,6 +460,8 @@ if __name__ == "__main__":
                 fes = np.zeros((len(bt1),len(bt3),len(gamtest))).astype('float64')
                 for j,bt1val in enumerate(bt1):
                     for k,bt3val in enumerate(bt3):
+                        """
+                        #the code below is functional, maybe slow
                         resg = np.zeros(len(gamtest)).astype('float64')
                         fesg = np.zeros(len(gamtest)).astype('float64')
                         for g,gam in enumerate(gamtest):
@@ -451,21 +485,52 @@ if __name__ == "__main__":
 
                         res[j,k,:] = resg
                         fes[j,k,:] = fesg
+                        #end slow section
+                        """
+                        #this code is an attempt to speed up the above
+
+                        xe1mgam = xe1[j]*gamtest
+                        ye1mgam = ye1[j]*gamtest
+                        xe3mgam = xe3[k]*gamtest
+                        ye3mgam = ye3[k]*gamtest
+                        adot = (np.sign(bt1val)*(x1[j]+xe1mgam)+np.sign(bt3val)*(x3[k]+xe3mgam))/(np.abs(bt1val) + np.abs(bt3val))
+                        bdot = (np.sign(bt1val)*(y1[j]+ye1mgam)+np.sign(bt3val)*(y3[k]+ye3mgam))/(np.abs(bt1val) + np.abs(bt3val))
+
+                        xp1 = bt1val*adot - xe1mgam
+                        yp1 = bt1val*bdot - ye1mgam
+                        xp3 = bt3val*adot - xe3mgam
+                        yp3 = bt3val*bdot - ye3mgam
+
+                        #calculate the residuals
+                        Resg = ( ((xp1-x1[j])**2 + (xp3-x3[k])**2 + (yp1-y1[j])**2 + (yp3-y3[k])**2)**0.5)/d2r*3600.0
+                        Fesg = (adot**2 + bdot**2)*(gamtest**(-3))*3389.0
+
+                        res[j,k,:] = Resg
+                        fes[j,k,:] = Fesg
+                        #end fast section
+
 
                 w = np.where((res<1.0) & (fes<5.0))
                 taken = []
                 for j in range(len(w[0])):
                     ind_1 = w1[0][w11[0]][w[0][j]]
                     ind_3 = w2[0][w22[0]][w[1][j]]
+
                     if [ind_1,i,ind_3] not in taken:
                         taken.append([ind_1,i,ind_3])
 
                         test_mover_ind = np.array(taken[-1])
-                        test_mover_dist = np.min(dist_range[w[0][j]])
+                        test_mover_dists = [dist_range[w[0][j]]]
+                        for l in range(len(w[0])):
+                            if ind_1 == w1[0][w11[0]][w[0][l]] and ind_3 == w2[0][w22[0]][w[1][l]] and l!=j:
+                                test_mover_dists.append(dist_range[w[0][l]])
+
+                        #print(test_mover_dists,'triplet')
+
 
                         used[test_mover_ind] = 5
 
-                        w_add = np.where( (np.abs(time[i]-time)>0.008) & (time!=time[test_mover_ind[0]]) & (time!=time[test_mover_ind[2]]) & (np.abs(trans.dec[i]-trans.dec)<dmax) & (np.abs(trans.ra[i]-trans.ra)*np.cos(trans.dec[i]*d2r)<dmax) & (used<5) )
+                        w_add = np.where( (np.abs(time[i]-time)>0.008) & (time!=time[test_mover_ind[0]]) & (time!=time[test_mover_ind[2]]) & (np.abs(trans.dec[i]-trans.dec)<dmax) & (np.abs(trans.ra[i]-trans.ra)*np.cos(trans.dec[i]*d2r)<dmax) & (np.abs(trans.mag[i]-trans.mag)<mag_diff_lim) &(used<5) )
                         #print(i,w_add)
                         if len(w_add[0])>0: #we have additional candidates at different times to add to the test mover object
                             d = gc_dist(trans.ra[i],trans.dec[i],trans.ra[w_add],trans.dec[w_add])*3600.0
@@ -490,17 +555,17 @@ if __name__ == "__main__":
 
                                 bt_add = trans.jd[test_mover_add_ind] - trans.jd[i]
 
-
                                 #don't need to do this again because we are still using the same point for the reference of the tangent plane
                                 #(xe,ye,ze) = idl_hashtag(big_arr,xhat,yhat,zhat,i)
                                 xe_add = xe[test_mover_add_ind]
                                 ye_add = ye[test_mover_add_ind]
                                 ze_add = ze[test_mover_add_ind]
 
-                                #resg = np.zeros(len(gamtest)).astype('float64')
-                                #fesg = np.zeros(len(gamtest)).astype('float64')
-                                for g,gam in enumerate(gamtest):
 
+                                alreadyAdded = False
+                                """
+                                #slow but functional
+                                for g,gam in enumerate(gamtest):
                                     adot_add = np.sum(np.sign(bt_add)*(x_add+xe_add*gam))/np.sum(np.abs(bt_add))
                                     bdot_add = np.sum(np.sign(bt_add)*(y_add+ye_add*gam))/np.sum(np.abs(bt_add))
 
@@ -515,32 +580,69 @@ if __name__ == "__main__":
                                     #resg[g] = rr
                                     #fesg[g] = f
                                     if (rr<1 and ff<5):
-                                        print(1./gam,rr,ff,test_mover_add_ind[-1])
-                                        test_mover_ind = np.copy(test_mover_add_ind)
-                                        test_mover_dist = 1./gam
-                                        break
+                                        #print(1./gam,rr,ff,test_mover_add_ind[-1])
+                                        if not alreadyAdded:
+                                            test_mover_ind = np.copy(test_mover_add_ind)
+                                            alreadyAdded = True
+                                            test_mover_dists = []
+                                        test_mover_dists.append( 1./gam)
+                                #end slow section
+                                """
+                                #optimization of the above slow bit
+                                rep_gamtest = np.repeat(np.array([gamtest]),len(xe_add)).reshape(len(gamtest),len(xe_add))
+                                xemgam = xe_add*rep_gamtest
+                                yemgam = ye_add*rep_gamtest
 
-                            #print(test_mover_ind,w_add)
-                            #print()
+
+                                bt_add_sum = np.sum(np.abs(bt_add))
+                                adot_add = np.sum(np.sign(bt_add)*(x_add+xemgam),axis=1)/bt_add_sum
+                                bdot_add = np.sum(np.sign(bt_add)*(y_add+yemgam),axis=1)/bt_add_sum
+
+                                rep_adot_add = np.repeat(np.array([adot_add]),len(bt_add)).reshape(len(gamtest),len(bt_add))
+                                rep_bdot_add = np.repeat(np.array([bdot_add]),len(bt_add)).reshape(len(gamtest),len(bt_add))
+                                xp_add = rep_adot_add*bt_add - xemgam
+                                yp_add = rep_bdot_add*bt_add - yemgam
+
+
+                                rr = (np.sum((xp_add - x_add)**2 + (yp_add - y_add)**2,axis=1)**0.5)*3600.0/d2r
+                                ff = (adot_add**2 + bdot_add**2)*(gamtest**(-3))*3389.0
+
+
+                                W_add = np.where((rr<1) & (ff<5))
+                                if len(W_add[0])>0:
+                                    if not alreadyAdded:
+                                        alreadyAdded = True
+                                        test_mover_ind = np.copy(test_mover_add_ind)
+                                        test_mover_dists = 1./gamtest[W_add]
+                                #end fast section
+
+
+                        test_mover_dists = np.array(test_mover_dists)
                         if len(test_mover_ind)>=n_min_det:
                             movers.append(np.copy(np.sort(test_mover_ind)))
-                            mover_details.append([test_mover_dist])
+
+                            mover_details.append([np.min(test_mover_dists),np.max(test_mover_dists)])
                             used[test_mover_ind] = 10
-                            print('Mover!',i,test_mover_ind)
+
+                            print('\nMover!',i,test_mover_ind,np.min(test_mover_dists),np.max(test_mover_dists))
 
                             ds9_comm = 'ds9'
                             for k in range(len(movers[-1])):
                                 ind = movers[-1][k]
                                 print('   ',trans.images[ind],trans.x[ind],trans.y[ind],trans.snr[ind])
                                 ds9_comm += ' */HSC-R2/corr/'+trans.images[ind].split('.')[0]+'.fits'
+                                #ds9_comm += ' */'+trans.images[ind].split('.')[0]+'.fits'
                                 ds9_comm += ' -pan to {} {} image'.format(trans.x[ind],trans.y[ind])
                                 ds9_comm += ' -regions command "circle {} {} 10"'.format(trans.x[ind],trans.y[ind])
 
                                 mover_details[-1].append([ind,trans.images[ind],trans.x[ind],trans.y[ind],trans.snr[ind]])
-                            print(ds9_comm)
+                            if showDS9string:
+                                print(ds9_comm)
                             print()
                         else:
                             used[test_mover_ind] = 0
+
+    print('Writing to {}'.format(blinkfn))
     with open(blinkfn,'wb') as han:
         pickle.dump(mover_details,han)
     print("we have found {} candidates.".format(len(mover_details)))
