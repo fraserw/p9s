@@ -9,6 +9,7 @@ from astropy.io import fits
 from astropy.visualization import interval
 from stsci import numdisplay
 from sklearn import cluster,mixture
+from paths import *
 
 def skcluster(sample):
     gmm = mixture.GaussianMixture(
@@ -91,9 +92,8 @@ def plotTree(resu,samp,stree,sp,skclass = True,pred=[]):
         sp.scatter(samp[:,0],samp[:,1],samp[:,2],marker='o',color=colours)
     return None
 
-def plotCutoutsTree(resu,stree,pos_x,pos_y,fits_fn,ind=7,cutSize = 25,show = True):
-    with fits.open(fits_fn) as han:
-        data = han[1].data
+def plotCutoutsTree(resu,stree,pos_x,pos_y,data,ind=7,cutSize = 25,show = True):
+
     ui = []
     for j in range(len(resu[ind])):
         i0 = int(stree[resu[ind][j]][0])
@@ -134,9 +134,8 @@ def plotCutoutsTree(resu,stree,pos_x,pos_y,fits_fn,ind=7,cutSize = 25,show = Tru
         pyl.show()
 
 
-def plotCutoutsClass(pred,pos_x,pos_y,fits_fn,ind=0,cutSize = 25,show = True):
-    with fits.open(fits_fn) as han:
-        data = han[1].data
+def plotCutoutsClass(pred,pos_x,pos_y,data,ind=0,cutSize = 25,show = True):
+
     ui = np.arange(len(pos_x))
     w = np.where(pred == ind)
     ui = ui[w]
@@ -177,140 +176,124 @@ def plotCutoutsClass(pred,pos_x,pos_y,fits_fn,ind=0,cutSize = 25,show = True):
         pyl.show()
 
 
-header = {'EXPTIME':200.0,'MAGZERO':26.0}
+if __name__ == "__main__":
 
-apertures = {2:0,3:0,4:0,5:0,6:1,7:1,8:2,9:2,10:3,11:3,12:4,13:4,14:4,15:4,16:4,17:4,18:4,19:4,20:4}
-apNum = 4
+    import sys
 
-#shitty seeing image
-fn = '/media/fraserw/Hammer/DEC2018/02531/HSC-R2/corr/sexSaves/CORR-0154776-084.cat'
-fits_fn = '/media/fraserw/Hammer/DEC2018/02531/HSC-R2/corr/CORR-0154776-084.fits'
-
-#good seeing image
-fn = '/media/fraserw/rocketdata/SEP2017/02093/sexSaves/CORR-0132546-034.cat'
-fits_fn = 'CORR-0132546-034.fits'
-
-catalog = scamp.getCatalog(fn,paramFile='sextract.param')
+    displayCluster = True
+    snrMin = 60
 
 
+    #using chips 34,56,72
 
 
+    #good seeing image
+    fn = '/media/fraserw/rocketdata/SEP2017/02093/sexSaves/CORR-0132546-072.cat'
+    fits_fn = 'test_image_data/'+fn.split('/sexSaves/')[1].replace('.cat','.fits')
 
-w = np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) \
-    &  ((catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum])>50) & (catalog['FWHM_IMAGE']>1.5))
+    if len(sys.argv)>1:
+        fn = sys.argv[1]
+        fits_fn = fn.split('/sexSaves/')[1].replace('.cat','.fits')
 
-for i in catalog:
-    #print(i)
-    catalog[i] = catalog[i][w]
+    catalog = scamp.getCatalog(fn,paramFile='sextract.param')
 
-moment = catalog['X2_IMAGE']/catalog['Y2_IMAGE']
-#w = np.where(moment<1)
-#moment[w] = 1.0/moment[w]
+    with fits.open(fits_fn) as han:
+        header = han[0].header
+        data = han[1].data
 
-
-pos_x = catalog['X_IMAGE']
-pos_y = catalog['Y_IMAGE']
-
-mag_aper = -2.5*np.log10(catalog['FLUX_APER(5)'][:,apNum]/header['EXPTIME'])+header['MAGZERO']
-mag_auto = -2.5*np.log10(catalog['FLUX_AUTO']/header['EXPTIME'])+header['MAGZERO']
-
-mag_diff = mag_auto - mag_aper
-med_mag_diff = getMeanMagDiff(mag_aper,mag_diff)
-mag_diff -= med_mag_diff
-
-snr = catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum]
-
-x = catalog['FWHM_IMAGE']
-y = mag_diff
-z = catalog['A_IMAGE']/catalog['B_IMAGE']
-xx = moment
+    FWHM = header['fwhmRobust']
+    apNum = apertures[round(FWHM*3)]
 
 
-sample  = np.zeros((len(x),4)).astype('float64')
-sample[:,0] = xx
-sample[:,1] = y
-sample[:,2] = z
-sample[:,3] = x
+    w = np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) \
+        &  ((catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum])>snrMin) & (catalog['FWHM_IMAGE']>1.5))
+
+    for i in catalog:
+        #print(i)
+        catalog[i] = catalog[i][w]
+
+    moment = catalog['X2_IMAGE']/catalog['Y2_IMAGE']
+    #w = np.where(moment<1)
+    #moment[w] = 1.0/moment[w]
 
 
-tree = getTree(sample)
-result = STU.fraserStat(tree,sample,thetaStep=5.)
+    pos_x = catalog['X_IMAGE']
+    pos_y = catalog['Y_IMAGE']
+
+    mag_aper = -2.5*np.log10(catalog['FLUX_APER(5)'][:,apNum]/header['EXPTIME'])+header['MAGZERO']
+    mag_auto = -2.5*np.log10(catalog['FLUX_AUTO']/header['EXPTIME'])+header['MAGZERO']
+
+    mag_diff = mag_auto - mag_aper
+    med_mag_diff = getMeanMagDiff(mag_aper,mag_diff)
+    mag_diff -= med_mag_diff
+
+    snr = catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum]
+
+    x = catalog['FWHM_IMAGE']
+    y = mag_diff
+    z = catalog['A_IMAGE']/catalog['B_IMAGE']
+    xx = moment
 
 
-(sub_sample_0,sub_tree_0,sub_sample_1,sub_tree_1) = getSubTrees(sample,result)
-
-sub_result_0 = STU.fraserStat(sub_tree_0, sub_sample_0, thetaStep=5.)
-sub_result_1 = STU.fraserStat(sub_tree_1, sub_sample_1, thetaStep=5.)
-
-#plotCutouts(sub_result_0,sub_tree_0,pos_x,pos_y,fits_fn,ind=7,show = False)
-#plotCutouts(sub_result_0,sub_tree_0,pos_x,pos_y,fits_fn,ind=8,show =True)
-#exit()
-
-
-
-#(dist,clas) = (cluster.vq.kmeans2(sample,3))
-pred = skcluster(sample)
-lp = [100000,-1]
-for p in np.unique(pred):
-    w = np.where(pred==p)
-    m = np.mean(sample[:,3][w])
-    if m < lp[0]:
-        lp = [m,p]
-with open(fits_fn.replace('.fits','.psfStars'),'w+') as han:
-    w = np.where(pred == lp[1])
-    for i in range(len(w[0])):
-        han.write('{:>8.2f} {:>8.2f} {:>10.2f} {:>10.2f}\n'.format(catalog['X_IMAGE'][w[0][i]],catalog['Y_IMAGE'][w[0][i]],catalog['FLUXERR_APER(5)'][:,apNum][w[0][i]],catalog['FLUX_APER(5)'][:,apNum][w[0][i]]))
-
-exit()
-plotCutoutsClass(pred,pos_x,pos_y,fits_fn,ind=2,cutSize = 25,show = False)
-plotCutoutsClass(pred,pos_x,pos_y,fits_fn,ind=1,cutSize = 25,show = False)
-plotCutoutsClass(pred,pos_x,pos_y,fits_fn,ind=0,cutSize = 25,show = False)
-fig = pyl.figure()
-sp = fig.add_subplot(111, projection='3d')
-
-#plotTree(sub_result_0,sub_sample_0,sub_tree_0,sp)
-plotTree(result, sample, tree,sp,skclass = True, pred=pred)
-
-sp.set_xlabel('FWHM_IMAGE')
-sp.set_ylabel('Aper - Kron')
-sp.set_zlabel('A/B')
-
-pyl.show()
-exit()
-
-
-
-for j in range(len(result[7])):
-    i0 = int(tree[result[7][j]][0])
-    i1 = int(tree[result[7][j]][1])
-    if result[7][j]!=result[2]:
-        sp.plot([sample[i0][0],sample[i1][0]],[sample[i0][1],sample[i1][1]],[sample[i0][2],sample[i1][2]],'r-',lw=1.5)
-for j in range(len(result[8])):
-    i0 = int(tree[result[8][j]][0])
-    i1 = int(tree[result[8][j]][1])
-    if result[8][j]!=result[2]:
-        sp.plot([sample[i0][0],sample[i1][0]],[sample[i0][1],sample[i1][1]],[sample[i0][2],sample[i1][2]],'b-',lw=1.5)
-
-i0 = int(tree[result[2]][0])
-i1 = int(tree[result[2]][1])
-sp.plot([sample[i0][0],sample[i1][0]],[sample[i0][1],sample[i1][1]],[sample[i0][2],sample[i1][2]],'k-.',lw=1.5)
+    sample  = np.zeros((len(x),4)).astype('float64')
+    sample[:,0] = xx
+    sample[:,1] = y
+    sample[:,2] = z
+    sample[:,3] = x
 
 
 
 
-colors = []
-for i in range(len(x)):
-    colors.append('b')
-colors = np.array(colors)
-w = np.where(clas==1)
-colors[w] = 'r'
-w = np.where(clas==2)
-colors[w] = 'y'
 
-sp.scatter(sample[:,0],sample[:,1],sample[:,2],marker='o',color = colors)
-sp.set_ylabel('Aper - Kron')
-sp.set_xlabel('FWHM_IMAGE')
-sp.set_zlabel('A/B')
+    #(dist,clas) = (cluster.vq.kmeans2(sample,3))
+    pred = skcluster(sample)
+    lp = [100000,-1]
+    for p in np.unique(pred):
+        w = np.where(pred==p)
+        m = np.mean(sample[:,3][w])
+        if m < lp[0]:
+            lp = [m,p]
+    with open(fits_fn.replace('.fits','.psfStars'),'w+') as han:
+        w = np.where(pred == lp[1])
+        for i in range(len(w[0])):
+            han.write('{:>8.2f} {:>8.2f} {:>10.2f} {:>10.2f}\n'.format(catalog['X_IMAGE'][w[0][i]],catalog['Y_IMAGE'][w[0][i]],catalog['FLUXERR_APER(5)'][:,apNum][w[0][i]],catalog['FLUX_APER(5)'][:,apNum][w[0][i]]))
 
-#sp.set_xlim(0,10)
-pyl.show()
+    for i in np.unique(pred):
+        for j in range(len(pred)):
+            if pred[j]!=lp[1] and pred[j]==i:
+                print(pred[j],catalog['X_IMAGE'][j],catalog['Y_IMAGE'][j],mag_aper[j],mag_diff[j])
+
+    for j in range(len(pred)):
+        if pred[j]==lp[1]:
+            print('**',pred[j],catalog['X_IMAGE'][j],catalog['Y_IMAGE'][j],mag_aper[j],mag_diff[j])
+
+    if displayCluster:
+        tree = getTree(sample)
+        result = STU.fraserStat(tree,sample,thetaStep=5.)
+
+        """
+
+        (sub_sample_0,sub_tree_0,sub_sample_1,sub_tree_1) = getSubTrees(sample,result)
+
+        sub_result_0 = STU.fraserStat(sub_tree_0, sub_sample_0, thetaStep=5.)
+        sub_result_1 = STU.fraserStat(sub_tree_1, sub_sample_1, thetaStep=5.)
+        #plotCutouts(sub_result_0,sub_tree_0,pos_x,pos_y,data,ind=7,show = False)
+        #plotCutouts(sub_result_0,sub_tree_0,pos_x,pos_y,data,ind=8,show =True)
+        #exit()
+        """
+
+
+        plotCutoutsClass(pred,pos_x,pos_y,data,ind=2,cutSize = 25,show = False)
+        plotCutoutsClass(pred,pos_x,pos_y,data,ind=1,cutSize = 25,show = False)
+        plotCutoutsClass(pred,pos_x,pos_y,data,ind=0,cutSize = 25,show = False)
+        fig = pyl.figure()
+        sp = fig.add_subplot(111, projection='3d')
+
+        #plotTree(sub_result_0,sub_sample_0,sub_tree_0,sp)
+        plotTree(result, sample, tree,sp,skclass = True, pred=pred)
+
+        sp.set_xlabel('FWHM_IMAGE')
+        sp.set_ylabel('Aper - Kron')
+        sp.set_zlabel('A/B')
+
+        pyl.show()
