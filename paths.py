@@ -1,9 +1,11 @@
 import numpy as np
 
 #ran extract on 02091,02093
-masterDir = '/media/fraserw/Thumber/DEC2018_also'
-sourceDir = masterDir+'/02529/HSC-R2/corr/'  #working with data from /net/eris/data1/surhud/P9_2017_frames/02091 at the moment
+masterDir = '/media/fraserw/Hammer/DEC2018'
+sourceDir = masterDir+'/02533/HSC-R2/corr/'
 masksDir = '/home/fraserw/idl_progs/hscp9/sextract'
+
+#finished up to 2533 on Hammer, 02530 on Thumber
 
 cutRegion = [0,4176,0,2048]
 
@@ -37,4 +39,4 @@ maskChips = [
 d2r = np.pi/180.0
 r2d = 180.0/np.pi
 
-apertures = {2:0,3:0,4:0,5:0,6:1,7:1,8:2,9:2,10:3,11:3,12:4,13:4,14:4,15:4,16:4,17:4,18:4,19:4,20:4}
+apertures = {2:0,3:0,4:0,5:0,6:1,7:1,8:2,9:2,10:3,11:3,12:4,13:4,14:5,15:5,16:6,17:6,18:7,19:7,20:8,21:8,22:4,23:8,24:8,25:8,26:8,27:8,28:8,29:8,30:8,31:8,32:8,33:8,34:8,35:8,36:8,37:8,38:8,39:8,40:8,41:8,42:8,43:8,44:8,45:8,46:8,47:8,48:8,49:8,50:8,51:8,52:8,53:8,54:8,55:8,56:8,57:8,58:8,59:8,60:8,61:8,62:8,63:8,64:8,65:8,66:8,67:8,68:8,69:4}

@@ -8,21 +8,29 @@ from astropy import wcs
 from stsci import numdisplay
 import multiprocessing as multip
 import time
-import scamp
+#import scamp
 import pickle
+from trippy import scamp,bgFinder
 
 from catObj import catObj
 apertures = {2:0,3:0,4:0,5:0,6:1,7:1,8:2,9:2,10:3,11:3,12:4,13:4,14:4,15:4,16:4,17:4,18:4,19:4,20:4}
 
 
-def getMeanMagDiff(maper,diff):
-    bins = np.arange(int(np.min(maper)),int(np.max(maper))+1)
+def getMeanMagDiff(maper,diff,bwidth = 1, returnMax = False):
+    """
+    returnMax is good when the sources are few, and the SNR is high
+    """
+
+    bins = np.arange(int(np.min(maper)),int(np.max(maper))+bwidth,bwidth)
     k = (maper-bins[0]).astype('int')
     meds = []
     stds = []
     for ii in range(len(bins)):
         w = np.where(k==ii)
-        if len(w[0])>5:
+        if returnMax:
+            meds.append(np.nanmax(diff[w]))
+            stds.append(np.nanstd(diff[w]))
+        elif len(w[0])>=5:
             meds.append(np.nanmedian(diff[w]))
             stds.append(np.nanstd(diff[w]))
         else:
@@ -31,12 +39,17 @@ def getMeanMagDiff(maper,diff):
     meds = np.array(meds)
     stds = np.array(stds)
 
+    if returnMax:
+        return np.median(meds)
+
     if np.sum(np.isnan(meds))>len(meds)-3:
         return np.nan
 
     w = np.where(np.isnan(stds)==0)
+
     meds = meds[w]
     stds = stds[w]
+
     bins = bins[w]
     weight = 1.0/stds**2
     mean = np.sum(meds*weight)/np.sum(weight)
@@ -44,7 +57,7 @@ def getMeanMagDiff(maper,diff):
     return mean
 
 
-def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includeImageMask = False, kron_cut = 0.8):
+def runSex(file,fn,chip,mask_file,svsPath,showProgress = False, verbose =  False, includeImageMask = False, kron_cut = -0.5, runSextractor=True):
 
     if path.isfile(mask_file):
         mask = mask_file+'[0]'
@@ -71,7 +84,7 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
                 mask_data = np.ones(han2.shape).astype(han2.dtype)
 
 
-            w = np.where(han2>=4000)
+            w = np.where((han2>32)|(han2==12)) #12 is cosmic rays, everything above 32 seems to be saturation
             try:
                 mask_data[w] = 0.0
 
@@ -79,7 +92,8 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
                 print(np.max(w[0]),np.max(w[1]))
                 exit()
 
-            fits.writeto(file+'.mask',mask_data,overwrite = True)
+            if runSextractor:
+                fits.writeto(file+'.mask',mask_data,overwrite = True)
             mask = file+'.mask'
 
         if showProgress:
@@ -100,22 +114,23 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
     catObject.astrms = header['WCS_RMS']
 
 
-
     if showProgress:
         pyl.imshow(data, interpolation='nearest', cmap='gray', origin='lower')
         pyl.colorbar()
         pyl.show()
 
-    if mask is not None:
-        scamp.runSex('subaru_LDAC.sex', file+'[0]' ,options={'CATALOG_NAME':savesPath+fn.replace('.fits','.cat'),'WEIGHT_IMAGE':mask,'WEIGHT_TYPE':'map_weight'},verbose=verbose)
-    else:
-        scamp.runSex('subaru_LDAC.sex', file+'[0]' ,options={'CATALOG_NAME':savesPath+fn.replace('.fits','.cat')},verbose=verbose)
+    if runSextractor:
+        if mask is not None:
+            scamp.runSex('subaru_LDAC.sex', file+'[0]' ,options={'CATALOG_NAME':svsPath+fn.replace('.fits','.cat'),'WEIGHT_IMAGE':mask,'WEIGHT_TYPE':'map_weight'},verbose=verbose)
+        else:
+            scamp.runSex('subaru_LDAC.sex', file+'[0]' ,options={'CATALOG_NAME':svsPath+fn.replace('.fits','.cat')},verbose=verbose)
 
-    catalog = scamp.getCatalog(savesPath+fn.replace('.fits','.cat'),paramFile='sextract.param')
+    catalog = scamp.getCatalog(svsPath+fn.replace('.fits','.cat'),paramFile='sextract.param')
 
     #get rid of the flux=0 sources
-    #w = np.where((catalog['FLUX_APER(5)'][:,apNum]>0) & (catalog['FLUX_AUTO']>0))
-    w = np.where((catalog['FLUX_APER(5)'][:,0]>0) & (catalog['FLUX_APER(5)'][:,1]>0) & (catalog['FLUX_APER(5)'][:,2]>0) & (catalog['FLUX_APER(5)'][:,3]>0) & (catalog['FLUX_APER(5)'][:,4]>0) & (catalog['FLUX_AUTO']>0))
+    w = np.where((catalog['FLUX_APER(9)'][:,0]>0) & (catalog['FLUX_APER(9)'][:,1]>0) & (catalog['FLUX_APER(9)'][:,2]>0) & (catalog['FLUX_APER(9)'][:,3]>0) & (catalog['FLUX_APER(9)'][:,4]>0)\
+                 & (catalog['FLUX_APER(9)'][:,5]>0) & (catalog['FLUX_APER(9)'][:,6]>0)\
+                 & (catalog['FLUX_AUTO']>0))
     for key in catalog:
         catalog[key] = catalog[key][w]
 
@@ -123,7 +138,7 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
     if catObject.seeing <= 0:
         #need to estimate seeing because header value is non-sense
         #use all snr>40 sources, and take the median FWHM_IMAGE value
-        FWHM_IMAGE = np.sort(catalog['FWHM_IMAGE'][np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) & (catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum]>40) )])
+        FWHM_IMAGE = np.sort(catalog['FWHM_IMAGE'][np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) & (catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum]>40) )])
         #fwhm_mode = FWHM_IMAGE[len(FWHM_IMAGE)/2]
         fwhm_median = np.median(FWHM_IMAGE)
         catObject.seeing = fwhm_median
@@ -132,17 +147,21 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
 
 
     #setup cut on Kron magnitude, by getting the median difference between kron and aperture magnitude for star-like objects.
-    w = np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) &  ((catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum])>40) & (catalog['FWHM_IMAGE']>1.5))
+    w = np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) &  ((catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum])>40) & (catalog['FWHM_IMAGE']>1.5))
 
-    mag_aper = -2.5*np.log10(catalog['FLUX_APER(5)'][:,apNum][w]/header['EXPTIME'])+header['MAGZERO']
+    mag_aper = -2.5*np.log10(catalog['FLUX_APER(9)'][:,apNum][w]/header['EXPTIME'])+header['MAGZERO']
     mag_auto = -2.5*np.log10(catalog['FLUX_AUTO'][w]/header['EXPTIME'])+header['MAGZERO']
 
     mag_diff = mag_auto - mag_aper
-    med_mag_diff = getMeanMagDiff(mag_aper,mag_diff)
 
-    snr = catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum]
+    bgf = bgFinder.bgFinder(mag_diff)
+    med_mag_diff = bgf.fraserMode(0.4)
+    #med_mag_diff = getMeanMagDiff(mag_aper,mag_diff)
+    #if np.isnan(med_mag_diff):
+    #    med_mag_diff = getMeanMagDiff(mag_aper,mag_diff,returnMax = True)
 
     #cut on position, SNR, and FWHM
+    snr = catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum]
     if catObject.seeing>0:
         w = np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<2045) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<4173) & (catalog['FWHM_IMAGE']<catObject.seeing*5.0) & (snr>3) & (catalog['FWHM_IMAGE']>1.5) & (catalog['A_IMAGE']>1.0) & (catalog['B_IMAGE']>1.0) )
     else:
@@ -152,11 +171,10 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
 
     #now cut on difference between kron and aperture magnitudes, assuming there were enough sources for the cut
     if not np.isnan(med_mag_diff):
-        mag_aper = -2.5*np.log10(catalog['FLUX_APER(5)'][:,apNum][w]/header['EXPTIME'])+header['MAGZERO']
+        mag_aper = -2.5*np.log10(catalog['FLUX_APER(9)'][:,apNum][w]/header['EXPTIME'])+header['MAGZERO']
         mag_auto = -2.5*np.log10(catalog['FLUX_AUTO'][w]/header['EXPTIME'])+header['MAGZERO']
-        kron = catalog['KRON_RADIUS'][w]
         mag_diff = mag_auto-mag_aper-med_mag_diff
-        w = [w[0][np.where(np.abs(mag_diff)<kron_cut)]]
+        w = [w[0][np.where(mag_diff>kron_cut)]]
         #pyl.scatter(mag_aper,mag_diff)
         #print(len(w[0]))
         #pyl.scatter(mag_aper[np.where(np.abs(mag_diff)<kron_cut)],mag_diff[np.where(np.abs(mag_diff)<kron_cut)])
@@ -167,7 +185,7 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
     catObject.fwhm_image = catalog['FWHM_IMAGE'][w]
     catObject.x = catalog['X_IMAGE'][w]-1.0
     catObject.y = catalog['Y_IMAGE'][w]-1.0
-    catObject.flux = catalog['FLUX_APER(5)'][:,apNum][w]
+    catObject.flux = catalog['FLUX_APER(9)'][:,apNum][w]
     catObject.snr = snr[w]
     catObject.jd = 2400000.5+header['MJD']+header['EXPTIME']/(24.0*3600.0)
 
@@ -178,9 +196,9 @@ def runSex(file,fn,chip,mask_file,showProgress = False, verbose =  False, includ
     catObject.dec = dec
     catObject.mag = 2.5*np.log10(catObject.flux/header['EXPTIME'])+header['MAGZERO']
 
-    pickle.dump(catObject, open(savesPath+fn.replace('.fits','.sex_save'),'wb'))
+    pickle.dump(catObject, open(svsPath+fn.replace('.fits','.sex_save'),'wb'))
 
-    if includeImageMask:
+    if includeImageMask and runSextractor:
         os.remove(file+'.mask')
 
     print(file,len(catObject.ra))
@@ -274,7 +292,8 @@ def runSex_sep(file,fn,chip,mask_file,showProgress = False):
 if __name__ == "__main__":
     #sep.set_extract_pixstack(sepPixStack)
 
-    kron_cut = 0.7
+    kron_cut = -0.5
+    runSextractor = True
 
     savesPath = sourceDir+'/sexSaves/'
 
@@ -282,8 +301,10 @@ if __name__ == "__main__":
     Files.sort()
 
 
+    if not path.exists(savesPath):
+        os.mkdir(savesPath)
 
-    overWrite = False
+    overWrite = True
     if not overWrite:
         files = []
         for i in range(len(Files)):
@@ -295,8 +316,8 @@ if __name__ == "__main__":
     else:
         files = Files[:]
 
-    if not path.exists(savesPath):
-        os.mkdir(savesPath)
+
+
 
     mask_files = glob.glob(masksDir+'/mask*fits')
     mask_files.sort()
@@ -325,12 +346,12 @@ if __name__ == "__main__":
             mask_file = '/home/fraserw/idl_progs/hscp9/sextract/mask'+str(chip).zfill(3)+'.fits'
 
             #print(fn,chip)
-            catalog = runSex(file,fn,chip,mask_file,showProgress = False, verbose = True, includeImageMask = True)
+            catalog = runSex(file,fn,chip,mask_file,savesPath,showProgress = False, verbose = True, includeImageMask = True,kron_cut = kron_cut,runSextractor = runSextractor)
 
         exit()
 
     else:
-        numCores = 10
+        numCores = 11
 
 
         #attempt at multiprocessing with runSex which seems to fail
@@ -351,7 +372,7 @@ if __name__ == "__main__":
 
 
 
-                processes.append(multip.Process(target=runSex,args=(file,fn,chip,mask_file,False,False,True,kron_cut)))
+                processes.append(multip.Process(target=runSex,args=(file,fn,chip,mask_file,savesPath,False,False,True,kron_cut,runSextractor)))
                 processes[j].start()
 
             for j in range(len(processes)):
