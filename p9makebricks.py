@@ -53,7 +53,7 @@ if __name__ == "__main__":
     if len(sys.argv)==1:
 
         #saveFiles = glob.glob(masterDir+'/*/HSC-R2/corr/sexSaves/*sex_save')
-        saveFiles = glob.glob(masterDir+'/*/HSC-R2/corr/sexSaves/*sex_save')
+        saveFiles = glob.glob('/media/fraserw/Thumber/DEC2018_also/*/HSC-R2/corr/sexSaves/*sex_save')+glob.glob('/media/fraserw/Hammer/DEC2018/*/HSC-R2/corr/sexSaves/*sex_save')
         saveFiles.sort()
 
         bricksPath = masterDir+'/bricks'

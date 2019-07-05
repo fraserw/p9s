@@ -146,7 +146,7 @@ def plotCutoutsTree(resu,stree,pos_x,pos_y,data,ind=7,cutSize = 25,show = True):
         pyl.show()
 
 
-def plotCutoutsClass(pred,pos_x,pos_y,data,ind=0,cutSize = 25,show = True):
+def plotCutoutsClass(pred,pos_x,pos_y,data,ind=0,cutSize = 25,show = True, title = None):
 
     ui = np.arange(len(pos_x))
     w = np.where(pred == ind)
@@ -177,6 +177,9 @@ def plotCutoutsClass(pred,pos_x,pos_y,data,ind=0,cutSize = 25,show = True):
 
         sp = pyl.subplot(gs[j,k])
         sp.imshow(Cut)
+
+        if j == 0 and k==int(nsp/2):
+            sp.set_title(title)
         j+=1
         npl+=1
         if j==nsp:
@@ -188,15 +191,17 @@ def plotCutoutsClass(pred,pos_x,pos_y,data,ind=0,cutSize = 25,show = True):
         pyl.show()
 
 
+
 if __name__ == "__main__":
 
     import sys,glob,os
     from os import path
 
-    displayCluster = False
+    displayCluster = True
     snrMin = 50
-    runSingleimage = False
-
+    psfWidthMulti = 5
+    runSingleimage = True
+    badflags = 1+512+8+64+16+4+256+2+128+4096
 
     if len(sys.argv)>1:
         fn = sys.argv[1]
@@ -205,36 +210,47 @@ if __name__ == "__main__":
 
     if runSingleimage:
         #using chips 34,56,72
-        fns = ['/media/fraserw/rocketdata/SEP2017/02093/sexSaves/CORR-0132546-072.cat']
+        fns = ['/media/fraserw/Thumber/DEC2018_also/02530/HSC-R2/corr/sexSaves/CORR-0154104-078.cat']
+        savesPath = '/media/fraserw/rocketdata/DEC2018/'+'psfStars/'
     else:
-        savesPath = sourceDir+'psfStars/'
+        #savesPath = sourceDir+'psfStars/'
+        savesPath = '/media/fraserw/rocketdata/DEC2018/'+'psfStars/'
         if not path.exists(savesPath):
             os.mkdir(savesPath)
 
-        Files = glob.glob(sourceDir+'sexSaves/*cat')
+        #Files = glob.glob(sourceDir+'sexSaves/*cat')
+        Files = glob.glob('/media/fraserw/Hammer/DEC2018/*/HSC-R2/corr/sexSaves/*cat')+glob.glob('/media/fraserw/Thumber/DEC2018_also/*/HSC-R2/corr/sexSaves/*cat')
         Files.sort()
         fns = Files[:]
 
+
     for ff,fn in enumerate(fns):
 
+
         fits_fn = fn.replace('/sexSaves','').replace('.cat','.fits')
+        chip = fits_fn.split('-')[-1].split('.')[0]
+        #if not (chip in ['034','056','058','072','083']):
+        #    continue
+
         print(ff+1,'/',len(fns),fits_fn)
-        #print(fn)
-        #exit()
-        #fits_fn = 'test_image_data/'+fn.split('/sexSaves/')[1].replace('.cat','.fits')
+
 
         catalog = scamp.getCatalog(fn,paramFile='sextract.param')
 
         with fits.open(fits_fn) as han:
             header = han[0].header
             data = han[1].data
+            mask_data = han[2].data#.astype('float64')
+            w = np.where(((mask_data & badflags) == 0))
+            mask_data *= 0 + 1
+            mask_data[w] = 0
 
         FWHM = header['fwhmRobust']
         if FWHM <= 0:
             #need to estimate seeing because header value is non-sense
             #use all snr>40 sources, and take the median FWHM_IMAGE value
             apNum = apertures[2]
-            FWHM_IMAGE = np.sort(catalog['FWHM_IMAGE'][np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) & (catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum]>40) )])
+            FWHM_IMAGE = np.sort(catalog['FWHM_IMAGE'][np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) & (catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum]>40) )])
             #fwhm_mode = FWHM_IMAGE[len(FWHM_IMAGE)/2]
             FWHM = np.median(FWHM_IMAGE)
         if np.isnan(FWHM):
@@ -243,8 +259,8 @@ if __name__ == "__main__":
             apNum = apertures[round(FWHM*3)]
 
         w = np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) \
-            &  ((catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum])>snrMin) & (catalog['FWHM_IMAGE']>1.5) \
-            & (catalog['FLUX_AUTO']>0) & (catalog['FLUXERR_APER(5)'][:,apNum]>0) )
+            &  ((catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum])>snrMin) & (catalog['FWHM_IMAGE']>1.5) \
+            & (catalog['FLUX_AUTO']>0) & (catalog['FLUXERR_APER(9)'][:,apNum]>0) )
 
         for i in catalog:
             #print(i)
@@ -258,7 +274,7 @@ if __name__ == "__main__":
         pos_x = catalog['X_IMAGE']
         pos_y = catalog['Y_IMAGE']
 
-        mag_aper = -2.5*np.log10(catalog['FLUX_APER(5)'][:,apNum]/header['EXPTIME'])+header['MAGZERO']
+        mag_aper = -2.5*np.log10(catalog['FLUX_APER(9)'][:,apNum]/header['EXPTIME'])+header['MAGZERO']
         mag_auto = -2.5*np.log10(catalog['FLUX_AUTO']/header['EXPTIME'])+header['MAGZERO']
 
 
@@ -272,7 +288,7 @@ if __name__ == "__main__":
             #pyl.show()
             #displayCluster = True
 
-        snr = catalog['FLUX_APER(5)'][:,apNum]/catalog['FLUXERR_APER(5)'][:,apNum]
+        snr = catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum]
 
         x = catalog['FWHM_IMAGE']
         y = mag_diff
@@ -310,21 +326,37 @@ if __name__ == "__main__":
         """
 
         lp = [0,0]
-        """
+
         lp = [100000,-1]
         for p in np.unique(pred):
             w = np.where(pred==p)
             m = np.mean(sample[:,3][w])
+            print(m,p)
             if m < lp[0]:
                 lp = [m,p]
-        """
+        print('Using cluster {}'.format(lp[1]))
+
         psfStars_fn = savesPath+fits_fn.replace('.fits','.psfStars').split('/')[-1]
 
+        (A,B) = data.shape
+        w = np.where(pred == lp[1])
+        W = []
+        for i in range(len(w[0])):
+            a = max(0,int(catalog['Y_IMAGE'][w[0][i]] - psfWidthMulti*FWHM))
+            b = min(A,int(catalog['Y_IMAGE'][w[0][i]] + psfWidthMulti*FWHM))
+            c = max(0,int(catalog['X_IMAGE'][w[0][i]] - psfWidthMulti*FWHM))
+            d = min(B,int(catalog['X_IMAGE'][w[0][i]] + psfWidthMulti*FWHM))
+            s = np.sum(mask_data[a:b,c:d])
+            if s==0:
+                W.append(w[0][i])
+        W = np.array(W)
+        w = [W]
+
         with open(psfStars_fn,'w+') as han:
-            han.write(str(FWHM))
-            w = np.where(pred == lp[1])
+            han.write(str(FWHM)+'\n')
             for i in range(len(w[0])):
-                han.write('{:>8.2f} {:>8.2f} {:>10.2f} {:>10.2f}\n'.format(catalog['X_IMAGE'][w[0][i]],catalog['Y_IMAGE'][w[0][i]],catalog['FLUXERR_APER(5)'][:,apNum][w[0][i]],catalog['FLUX_APER(5)'][:,apNum][w[0][i]]))
+                han.write('{:>8.2f} {:>8.2f} {:>10.2f} {:>10.2f}\n'.format(catalog['X_IMAGE'][w[0][i]],catalog['Y_IMAGE'][w[0][i]],catalog['FLUXERR_APER(9)'][:,apNum][w[0][i]],catalog['FLUX_APER(9)'][:,apNum][w[0][i]]))
+        han.close()
 
         if displayCluster:
             tree = getTree(sample)
@@ -338,15 +370,17 @@ if __name__ == "__main__":
             #plotCutouts(sub_result_0,sub_tree_0,pos_x,pos_y,data,ind=8,show =True)
             #exit()
 
+            t = ['badSources','badSources','badSources']
+            t[lp[1]] = 'Good Sources'
 
-            plotCutoutsClass(pred,pos_x,pos_y,data,ind=2,cutSize = 25,show = False)
-            plotCutoutsClass(pred,pos_x,pos_y,data,ind=1,cutSize = 25,show = False)
-            plotCutoutsClass(pred,pos_x,pos_y,data,ind=0,cutSize = 25,show = False)
+            plotCutoutsClass(pred,pos_x,pos_y,data,ind=2,cutSize = 25,show = False, title = t[2])
+            plotCutoutsClass(pred,pos_x,pos_y,data,ind=1,cutSize = 25,show = False, title = t[1])
+            plotCutoutsClass(pred,pos_x,pos_y,data,ind=0,cutSize = 25,show = False, title = t[0])
             fig = pyl.figure()
             sp = fig.add_subplot(111, projection='3d')
 
             #plotTree(sub_result_0,sub_sample_0,sub_tree_0,sp)
-            #plotTree(result, sample, tree,sp,skclass = True, pred=pred)
+            plotTree(result, sample, tree,sp,skclass = True, pred=pred)
 
             sp.set_xlabel('FWHM_IMAGE')
             sp.set_ylabel('Aper - Kron')

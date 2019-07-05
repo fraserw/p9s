@@ -4,8 +4,10 @@ import glob
 from paths import *
 import numpy as np
 
-masterDir = '/media/fraserw/rocketdata/FEB2018'
-files = glob.glob(masterDir+'/*/CORR*fits')
+masterDir = '/media/fraserw/Hammer/DEC2018'
+files = glob.glob(masterDir+'/*/HSC-R2/corr/CORR*fits')
+masterDir = '/media/fraserw/Thumber/DEC2018_also'
+files += glob.glob(masterDir+'/*/HSC-R2/corr/CORR*fits')
 files.sort()
 
 entry = []

@@ -8,35 +8,12 @@ from astropy import units as u
 from catObj import *
 from paths import *
 from p9makebricks import getBrickNum
-from p9gettransients import gc_dist
+from p9gettransients import gc_dist,gc_dist_d2r
 import earth
 
+from numba import jit
 
-def idl_hashtag_incorrect_interpretation(big_arr,xhat,yhat,zhat,i):
-    xe = np.copy(big_arr)
-    xe[0] *= xhat[0]
-    xe[1] *= xhat[1]
-    xe[2] *= xhat[2]
-    ye = np.copy(big_arr)
-    ye[0] *= yhat[0]
-    ye[1] *= yhat[1]
-    ye[2] *= yhat[2]
-    ze = np.copy(big_arr)
-    ze[0] *= zhat[0]
-    ze[1] *= zhat[1]
-    ze[2] *= zhat[2]
-
-    xe[0]-=xe[i][0]
-    xe[1]-=xe[i][1]
-    xe[2]-=xe[i][2]
-    ye[0]-=ye[i][0]
-    ye[1]-=ye[i][1]
-    ye[2]-=ye[i][2]
-    ze[0]-=ze[i][0]
-    ze[1]-=ze[i][1]
-    ze[2]-=ze[i][2]
-
-    return (xe,ye,ze)
+@jit(target='cpu',nopython=True)
 def idl_hashtag(big_arr,xhat,yhat,zhat,i):
     xe = big_arr[:,0]*xhat[0] + big_arr[:,1]*xhat[1] + big_arr[:,2]*xhat[2]
     ye = big_arr[:,0]*yhat[0] + big_arr[:,1]*yhat[1] + big_arr[:,2]*yhat[2]
@@ -47,6 +24,24 @@ def idl_hashtag(big_arr,xhat,yhat,zhat,i):
     ze -= ze[i]
     return (xe,ye,ze)
 
+@jit(target='cpu',nopython=True)
+def getRes(x1,y1,x3,y3,xe1,ye1,xe3,ye3,bt1val,bt3val,gamtest,j,k):
+    xe1mgam = xe1[j]*gamtest
+    ye1mgam = ye1[j]*gamtest
+    xe3mgam = xe3[k]*gamtest
+    ye3mgam = ye3[k]*gamtest
+    adot = (np.sign(bt1val)*(x1[j]+xe1mgam)+np.sign(bt3val)*(x3[k]+xe3mgam))/(np.abs(bt1val) + np.abs(bt3val))
+    bdot = (np.sign(bt1val)*(y1[j]+ye1mgam)+np.sign(bt3val)*(y3[k]+ye3mgam))/(np.abs(bt1val) + np.abs(bt3val))
+
+    xp1 = bt1val*adot - xe1mgam
+    yp1 = bt1val*bdot - ye1mgam
+    xp3 = bt3val*adot - xe3mgam
+    yp3 = bt3val*bdot - ye3mgam
+
+    #calculate the residuals
+    Resg = ( ((xp1-x1[j])**2 + (xp3-x3[k])**2 + (yp1-y1[j])**2 + (yp3-y3[k])**2)**0.5)/d2r*3600.0
+    Fesg = (adot**2 + bdot**2)*(gamtest**(-3))*3389.0
+    return (Resg,Fesg)
 
 
 if __name__ == "__main__":
@@ -54,9 +49,33 @@ if __name__ == "__main__":
     from os import path
     import time as Time
 
-    if '--veryfast' in sys.argv:
+
+    if '--ctio' in sys.argv:
         maxdays = 9.0 #max separation between centre and final/initial day
+        mindays = 1.0 #minimum time span of all detections to call something an object
         slow_time = 0.5#12 #time in hours to look for motion
+        diff_time = 0.001 #time in hours to ensure that the same image isn't taken twice when adding sources to a link
+        fastestp9 = 6.0 #arcsec/hr of fastest p9
+
+        min_dist = 42.0 #Minimum distance to probe
+        max_dist = 100.0
+        dist_step = 0.1
+
+        n_min_det = 4
+
+        max_dmag = 2.0
+
+        showDS9string = True
+
+        pathString = 'blinks'
+
+        print('Searching for very fast movers!')
+
+    elif '--veryfast' in sys.argv:
+        maxdays = 9.0 #max separation between centre and final/initial day
+        mindays = 0.6 #minimum time span of all detections to call something an object
+        slow_time = 0.2#12 #time in hours to look for motion
+        diff_time = 0.001 #time in hours to ensure that the same image isn't taken twice when adding sources to a link
         fastestp9 = 6.0 #arcsec/hr of fastest p9
 
         min_dist = 20.0 #Minimum distance to probe
@@ -64,6 +83,8 @@ if __name__ == "__main__":
         dist_step = 0.1
 
         n_min_det = 4
+
+        max_dmag = 2.0
 
         showDS9string = True
 
@@ -74,7 +95,9 @@ if __name__ == "__main__":
 
     elif '--fast' in sys.argv:
         maxdays = 9.0 #max separation between centre and final/initial day
-        slow_time = 0.5#12 #time in hours to look for motion
+        mindays = 0.6 #minimum time span of all detections to call something an object
+        slow_time = 0.3 #time in hours to look for motion. Choose such that furthest object at opposition will move a pixel in this time.
+        diff_time = 0.001 #time in hours to ensure that the same image isn't taken twice when adding sources to a link
         fastestp9 = 3.0 #arcsec/hr of fastest p9
 
         min_dist = 60.0 #Minimum distance to probe
@@ -82,6 +105,8 @@ if __name__ == "__main__":
         dist_step = 0.1
 
         n_min_det = 4
+
+        max_dmag = 2.0
 
         showDS9string = True
 
@@ -91,7 +116,9 @@ if __name__ == "__main__":
 
     else:
         maxdays = 9.0 #max separation between centre and final/initial day
+        mindays = 0.6 #minimum time span of all detections to call something an object
         slow_time = 1.0#12 #time in hours to look for motion
+        diff_time = 0.001 #time in hours to ensure that the same image isn't taken twice when adding sources to a link
         fastestp9 = 0.5 #arcsec/hr of fastest p9
         #fastestobj = 9.0 #fastest object in arcsec/hr
 
@@ -101,10 +128,12 @@ if __name__ == "__main__":
 
         n_min_det = 3
 
+        max_dmag = 1.3
+
         pathString = 'blinks'
 
         showDS9string = False
-
+        print("searching for slow movers!")
 
 
     #distance range to test
@@ -124,6 +153,8 @@ if __name__ == "__main__":
         else:
             print('Were you trying to use the diff catalog? If so, pass --diff.\n')
             #exit()
+        if '--ctio' in sys.argv:
+            masterDir = '/media/fraserw/rocketdata/CTIO_DEC_2018'
 
     blinksPath = masterDir+'/'+pathString
 
@@ -141,11 +172,18 @@ if __name__ == "__main__":
     if len(sys.argv)>1:
         bn_i = int(float(sys.argv[1]))
 
-    #for i in range(len(brick_files)):
-    #    if '92116' in brick_files[i]:
-    #        print(i,brick_files[i])
-    #        bn_i = i
-    #exit()
+    if bn_i >1000:
+        print ('Assuming we want the actual brick number, not the number in the bricks list.')
+
+        for i in range(len(brick_files)):
+            if sys.argv[1] in brick_files[i]:
+                print(i,brick_files[i])
+                bn_i = i
+        #exit()
+
+    doDetectionSimulation = False
+    if doDetectionSimulation:
+        brick_files[bn_i] = '/media/fraserw/rocketdata/DEC2018/detectionSimulations/false_bricks/0.brick'
 
     print(brick_files[bn_i])
     with open(brick_files[bn_i],'rb') as han:
@@ -207,8 +245,9 @@ if __name__ == "__main__":
     bb_unique = np.sort(np.unique(bb))
 
     ##########
-    #print("!!!!!!!!!remove this line in the code below before production runs!!!!!!!!!!!!")
-    #bb_unique = []
+    #if '--ctio' in sys.argv:
+    #    print("!!!!!!!!!remove this line in the code below before production runs!!!!!!!!!!!!")
+    #    bb_unique = []
     ###########
 
     for bb in bb_unique:
@@ -314,7 +353,8 @@ if __name__ == "__main__":
 
     dmag = 1.09/trans.snr
 
-
+    ra_d2r = trans.ra*d2r
+    dec_d2r = trans.dec*d2r
 
 
     tl, tb = [], []
@@ -354,14 +394,6 @@ if __name__ == "__main__":
 
     time = (trans.jd - np.min(trans.jd))*24.0 #time in hours
 
-    ####
-    #print(np.unique(time))
-    #w = np.where((time>slow_time) & (trans.brick == bn))
-    #print(w[0][0],w[0][-1])
-    #w = np.where((time<time[-1]-slow_time) & (trans.brick == bn))
-    #print(w[0][0],w[0][-1])
-    #exit()
-    ####
 
     try:
         strt = np.where((time>slow_time) & (trans.brick == bn))[0][0]
@@ -386,12 +418,13 @@ if __name__ == "__main__":
         ######################################
 
 
+
     movers = []
     mover_details = []
     ndet = 0
     dis = 0.0
     move_idx = 0
-    for i in range(strt,stp):
+    for i in range(strt,stp+1):
         if i in used: continue
 
         if i%100 == 0:
@@ -401,22 +434,31 @@ if __name__ == "__main__":
         dforward = np.max(time-time[i])*fastestp9/3600.0
         dmax = max(dforward,dback)
 
-        mag_diff_lim = 1.3+dmag[i]
+        mag_diff_lim = max_dmag+dmag[i]
 
         #mike comment
         # I am only looking at this with HIGHER ra in the past.    xe = np.sum(big_arr[:,0]*xhat[:,0] + big_arr[:,1]*xhat[:,1] + big_arr[:,2]*xhat[:,2])
 
 	    # implicitly assuming retrograde motion here!
-        dra = trans.ra[i]-trans.ra
-        ddec = trans.dec[i]-trans.dec
-        w1 = np.where( (time[i] - time > slow_time) & (np.abs(ddec)<dback) & (np.abs(dra)*np.cos(trans.dec[i]*d2r) < dback) & (np.abs(trans.mag[i]-trans.mag)<mag_diff_lim) &(used<10))
-        w2 = np.where( (time - time[i] > slow_time) & (np.abs(ddec)<dforward) & (np.abs(dra)*np.cos(trans.dec[i]*d2r) < dforward) & (np.abs(trans.mag[i]-trans.mag)<mag_diff_lim) & (used<10))
+        dra = np.abs(trans.ra[i]-trans.ra)*np.cos(trans.dec[i]*d2r)
+        ddec = np.abs(trans.dec[i]-trans.dec)
+        dt = time[i]-time
+        diff_mag = abs(trans.mag[i]-trans.mag)
+        w1 = np.where( (dt > slow_time) & (ddec<dback) & (dra<dback) & (diff_mag<mag_diff_lim) &(used<10))
+        w2 = np.where( (-dt > slow_time) & (ddec<dforward) & (dra<dforward) & (diff_mag<mag_diff_lim) & (used<10))
+
+        #old where statements kept for clarity and reference
+        #w1 = np.where( (time[i] - time > slow_time) & (np.abs(trans.dec[i]-trans.dec)<dback) & (np.abs(trans.ra[i]-trans.ra)*np.cos(trans.dec[i]*d2r) < dback) & (np.abs(trans.mag[i]-trans.mag)<mag_diff_lim) &(used<10))
+        #w2 = np.where( (time - time[i] > slow_time) & (np.abs(trans.dec[i]-trans.dec)<dforward) & (np.abs(trans.ra[i]-trans.ra)*np.cos(trans.dec[i]*d2r) < dforward) & (np.abs(trans.mag[i]-trans.mag)<mag_diff_lim) & (used<10))
 
 
 
         if len(w1[0])>0 and len(w2[0])>0:
-            d1 = gc_dist(trans.ra[i],trans.dec[i],trans.ra[w1],trans.dec[w1])*3600.0
-            d2 = gc_dist(trans.ra[i],trans.dec[i],trans.ra[w2],trans.dec[w2])*3600.0
+            #d1 = gc_dist(trans.ra[i],trans.dec[i],trans.ra[w1],trans.dec[w1])*3600.0
+            #d2 = gc_dist(trans.ra[i],trans.dec[i],trans.ra[w2],trans.dec[w2])*3600.0
+            d1 = gc_dist_d2r(ra_d2r[i],dec_d2r[i],ra_d2r[w1],dec_d2r[w1])*3600.0
+            d2 = gc_dist_d2r(ra_d2r[i],dec_d2r[i],ra_d2r[w2],dec_d2r[w2])*3600.0
+
 
             w11 = np.where(d1/(time[i]-time[w1])<fastestp9)
             w22 = np.where(d2/(time[w2]-time[i])<fastestp9)
@@ -487,8 +529,9 @@ if __name__ == "__main__":
                         fes[j,k,:] = fesg
                         #end slow section
                         """
-                        #this code is an attempt to speed up the above
 
+                        """
+                        #this code is an attempt to speed up the above
                         xe1mgam = xe1[j]*gamtest
                         ye1mgam = ye1[j]*gamtest
                         xe3mgam = xe3[k]*gamtest
@@ -505,10 +548,14 @@ if __name__ == "__main__":
                         Resg = ( ((xp1-x1[j])**2 + (xp3-x3[k])**2 + (yp1-y1[j])**2 + (yp3-y3[k])**2)**0.5)/d2r*3600.0
                         Fesg = (adot**2 + bdot**2)*(gamtest**(-3))*3389.0
 
+                        #end fast section
+                        """
+
+                        #fast section reimplemented in jit numba function
+                        (Resg,Fesg) = getRes(x1,y1,x3,y3,xe1,ye1,xe3,ye3,bt1val,bt3val,gamtest,j,k)
+
                         res[j,k,:] = Resg
                         fes[j,k,:] = Fesg
-                        #end fast section
-
 
                 w = np.where((res<1.0) & (fes<5.0))
                 taken = []
@@ -520,17 +567,17 @@ if __name__ == "__main__":
                         taken.append([ind_1,i,ind_3])
 
                         test_mover_ind = np.array(taken[-1])
-                        test_mover_dists = [dist_range[w[0][j]]]
+                        test_mover_dists = [dist_range[w[2][j]]]
                         for l in range(len(w[0])):
                             if ind_1 == w1[0][w11[0]][w[0][l]] and ind_3 == w2[0][w22[0]][w[1][l]] and l!=j:
-                                test_mover_dists.append(dist_range[w[0][l]])
+                                test_mover_dists.append(dist_range[w[2][l]])
 
                         #print(test_mover_dists,'triplet')
 
 
                         used[test_mover_ind] = 5
 
-                        w_add = np.where( (np.abs(time[i]-time)>0.008) & (time!=time[test_mover_ind[0]]) & (time!=time[test_mover_ind[2]]) & (np.abs(trans.dec[i]-trans.dec)<dmax) & (np.abs(trans.ra[i]-trans.ra)*np.cos(trans.dec[i]*d2r)<dmax) & (np.abs(trans.mag[i]-trans.mag)<mag_diff_lim) &(used<5) )
+                        w_add = np.where( (np.abs(time[i]-time)>diff_time) & (time!=time[test_mover_ind[0]]) & (time!=time[test_mover_ind[2]]) & (np.abs(trans.dec[i]-trans.dec)<dmax) & (np.abs(trans.ra[i]-trans.ra)*np.cos(trans.dec[i]*d2r)<dmax) & (np.abs(trans.mag[i]-trans.mag)<mag_diff_lim) &(used<5) )
                         #print(i,w_add)
                         if len(w_add[0])>0: #we have additional candidates at different times to add to the test mover object
                             d = gc_dist(trans.ra[i],trans.dec[i],trans.ra[w_add],trans.dec[w_add])*3600.0
@@ -618,13 +665,14 @@ if __name__ == "__main__":
 
 
                         test_mover_dists = np.array(test_mover_dists)
-                        if len(test_mover_ind)>=n_min_det:
+                        test_mover_jds = trans.jd[test_mover_ind]
+                        if len(test_mover_ind)>=n_min_det and (np.max(test_mover_jds)-np.min(test_mover_jds))>mindays:
                             movers.append(np.copy(np.sort(test_mover_ind)))
 
                             mover_details.append([np.min(test_mover_dists),np.max(test_mover_dists)])
-                            used[test_mover_ind] = 10
+                            #used[test_mover_ind] = 10
 
-                            print('\nMover!',i,test_mover_ind,np.min(test_mover_dists),np.max(test_mover_dists))
+                            print('\nMover!',i,np.sort(test_mover_ind),np.min(test_mover_dists),np.max(test_mover_dists))
 
                             ds9_comm = 'ds9'
                             for k in range(len(movers[-1])):
@@ -635,7 +683,7 @@ if __name__ == "__main__":
                                 ds9_comm += ' -pan to {} {} image'.format(trans.x[ind],trans.y[ind])
                                 ds9_comm += ' -regions command "circle {} {} 10"'.format(trans.x[ind],trans.y[ind])
 
-                                mover_details[-1].append([ind,trans.images[ind],trans.x[ind],trans.y[ind],trans.snr[ind]])
+                                mover_details[-1].append([ind,trans.images[ind],trans.x[ind],trans.y[ind],trans.snr[ind],trans.ra[ind],trans.dec[ind],trans.jd[ind]])
                             if showDS9string:
                                 print(ds9_comm)
                             print()

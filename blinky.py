@@ -29,23 +29,34 @@ def drawReticle(subp,xe,ye,fmt = 'r:'):
     subplots[0].plot([xe,xe],[ye-20,ye-10],fmt)
     subplots[0].plot([xe,xe],[ye+10,ye+20],fmt)
 
-def draw(subplots,normed,counter,xs,ys,X,Y,cut_width,fieldCut = None,fmt='r-'):
+def draw(subplots,normed,counter,xs,ys,X,Y,cut_widthx,cut_widthy,fieldCut = None,fmt='r-'):
     subplots[0].cla()
     if fieldCut is None:
         subplots[0].imshow(normed[counter])
     else:
         subplots[0].imshow(fieldCut)
-    drawReticle(subplots[0],cut_width+xs[counter]-X[counter][0],cut_width+ys[counter]-Y[counter][0],fmt)
+    (xa,xb) = subplots[0].get_xlim()
+    (ya,yb) = subplots[0].get_ylim()
+    if not doCTIO:
+        subplots[0].set_xlim(xa,xb/2.0+100.0)
+    else:
+        subplots[0].set_xlim((xa+xb)/2-100.0,xb)
+    (ya,yb) = subplots[0].get_ylim()
+    diff_x = xb/2.0-xa+100.0
+    mid_y = (yb+ya)/2
+    #subplots[0].set_ylim(mid_y+diff_x/2.0,mid_y-diff_x/2.0)
+
+    drawReticle(subplots[0],cut_widthx+xs[counter]-X[counter][0],cut_widthy+ys[counter]-Y[counter][0],fmt)
     subplots[0].set_ylim(subplots[0].get_ylim()[::-1])
 
     for i in range(len(X)):
         if i != counter:
-            subplots[0].scatter(X[counter][i]-X[counter][0] + cut_width, Y[counter][i]-Y[counter][0] + cut_width, marker = 'o', edgecolor = 'r', facecolor = 'none', s =600)
+            subplots[0].scatter(X[counter][i]-X[counter][0] + cut_widthx, Y[counter][i]-Y[counter][0] + cut_widthy, marker = 'o', edgecolor = 'r', facecolor = 'none', s =600)
             #subplots[0].scatter((X[0][i]-xs[0]) + cut_width, (Y[0][i]-ys[0]) + cut_width, marker = 'o', edgecolor = 'r', facecolor = 'none',s=400)
 
 
 def blinky(event):
-    global subplots,normed, patches, counter,nsp,ims,xs,ys,ras,decs,jds,X,Y,dist_low,dist_high,distantCandidate,corners, cut_width, possCounter, possIms, possDrawing, fieldCuts, contrast
+    global subplots,normed, patches, counter,nsp,ims,xs,ys,ras,decs,jds,X,Y,dist_low,dist_high,distantCandidate,corners, cut_widthx, cut_widthy, possCounter, possIms, possDrawing, fieldCuts, contrast
 
     if event.key == 'q':
         exit()
@@ -55,19 +66,28 @@ def blinky(event):
         possDrawing = False
         possCounter = 0
         for ii in range(len(patches)):
-            subplots[ii+1].patches[-1].set_edgecolor('r')
+            if len(subplots)>1:
+                subplots[ii+1].patches[-1].set_edgecolor('r')
 
     if event.key in ['a','tab']:
         counter += 1
         counter = counter%len(normed)
-        subplots[counter+1].patches[-1].set_edgecolor('y')
+        if len(subplots)>1:
+            subplots[counter+1].patches[-1].set_edgecolor('y')
     elif event.key in ['d']:
         counter -= 1
         counter = counter%len(normed)
-        subplots[counter+1].patches[-1].set_edgecolor('y')
+        if len(subplots)>1:
+            subplots[counter+1].patches[-1].set_edgecolor('y')
+
+    if event.key in['v']:
+        comm = 'ds9 '
+        for ii in range(len(ims)):
+            comm+='{} -pan to {} {} -regions command "circle({},{},10)" '.format(ims[ii],xs[ii],ys[ii],xs[ii],ys[ii])
+        print(comm)
 
     if event.key in ['a','tab','d']:
-        draw(subplots,normed,counter,xs,ys,X,Y,cut_width)
+        draw(subplots,normed,counter,xs,ys,X,Y,cut_widthx,cut_widthy)
         pyl.draw()
 
     if event.key == 'g':
@@ -106,9 +126,9 @@ def blinky(event):
                 (A,B) = fieldData.shape
 
                 bg = 0.0
-                big = np.zeros((A+cut_width*4+1,B+cut_width*4+1)).astype('float64')+bg
-                big[cut_width*2:A+cut_width*2,cut_width*2:cut_width*2+B] = fieldData
-                cut = big[int(yy)+cut_width:int(yy)+3*cut_width,int(xx)+cut_width:int(xx)+3*cut_width]
+                big = np.zeros((A+cut_widthy*4+1,B+cut_widthx*4+1)).astype('float64')+bg
+                big[cut_widthy*2:A+cut_widthy*2,cut_widthx*2:cut_widthx*2+B] = fieldData
+                cut = big[int(yy)+cut_widthy:int(yy)+3*cut_widthy,int(xx)+cut_widthx:int(xx)+3*cut_widthx]
 
 
                 (z1,z2) = numdisplay.zscale.zscale(fieldData,contrast = contrast)
@@ -122,7 +142,7 @@ def blinky(event):
                 fieldCuts.append(np.copy(fieldCut))
             else:
                 fieldCut = fieldCuts[possCounter]
-            draw(subplots,normed,counter,xs,ys,X,Y,cut_width,fieldCut = fieldCut,fmt='w-')
+            draw(subplots,normed,counter,xs,ys,X,Y,cut_widthx,cut_widthy,fieldCut = fieldCut,fmt='w-')
 
             possCounter = (possCounter+1)%len(possIms)
 
@@ -143,17 +163,23 @@ def blinky(event):
         print('d/tab - blink forwards')
         print('    q - quit without saving a candidates file.')
 
-widths = [200,300,500,700,900,1000,1200,1400,1600]
+widths = [200,300,500,700,900,1000,1200,1400,1600,1800,2000,2200,2400,2600,2800,3000]
 contrast = 0.4
 
 doFast = False
 doVeryFast = False
+doCTIO = False
 if '--fast' in sys.argv:
     doFast = True
     print('Using fast_bricks')
 elif '--veryfast' in sys.argv:
     doVeryFast = True
     print('Using veryfast_bricks')
+elif '--ctio' in sys.argv:
+    doCTIO = True
+
+if doCTIO:
+    masterDir = '/media/fraserw/rocketdata/CTIO_DEC_2018'
 
 """
 blinksPath = masterDir+'/blinks'
@@ -175,11 +201,11 @@ if not path.exists(candidatesPath):
 
 #reseting master Dir because images are on a different drive compared to all other files
 #masterDir = '/media/fraserw/Thumber/SEP2017'
-bf = '/media/fraserw/rocketdata/FEB2018/blinks/blink.57098'
+bf = masterDir+'/blinks/blink.57098'
 if doFast:
-    bf = '/media/fraserw/rocketdata/FEB2018/fast_blinks/blink_fast.57098'
+    bf = masterDir+'/fast_blinks/blink_fast.57098'
 elif doVeryFast:
-    bf = '/media/fraserw/rocketdata/FEB2018/veryfast_blinks/blink_veryfast.57098'
+    bf = masterDir+'/veryfast_blinks/blink_veryfast.57098'
 if len(sys.argv)>1:
     bf = bf.replace('57098',sys.argv[1])
 
@@ -188,6 +214,25 @@ if len(sys.argv)>1:
 with open(bf,'rb') as han:
     mover_details = pickle.load(han)
 
+if '--skipFastCands' in sys.argv:
+    with open(bf.replace('very',''),'rb') as han:
+        movers_to_skip = pickle.load(han)
+
+    for i in range(len(mover_details)):
+        for j in range(len(movers_to_skip)):
+            if len(mover_details[i]) == len(movers_to_skip[j]):
+                haves = 0
+                for k in range(2,len(mover_details[i])):
+                    have = False
+                    for l in range(2,len(movers_to_skip[j])):
+                        if movers_to_skip[j][l][1] == mover_details[i][k][1] and movers_to_skip[j][l][2] == mover_details[i][k][2] and  movers_to_skip[j][l][3] == mover_details[i][k][3] and movers_to_skip[j][l][4] == mover_details[i][k][4]:
+                            have = True
+                    #print(i,j,have)
+                    if have:
+                        haves+=1
+                if len(mover_details[i])-2 == haves:
+                    print('Skipping',j)
+                    exit()
 
 
 candFile = candidatesPath + bf.split('/')[-1].replace('blink','/candidates')
@@ -209,14 +254,13 @@ for i in range(len(data)):
 #check for triplets that are fully contained in larger sets.
 contained = []
 for i in range(len(mover_details)):
-
-    if len(mover_details[i][2:])>3:
+    if len(mover_details[i][2:])>3 and i not in contained:
         md = []
         for k in range(2,len(mover_details[i])):
             md.append(mover_details[i][k][1]+str(mover_details[i][k][2])+str(mover_details[i][k][3]))
         for j in range(len(mover_details)):
             if i != j:
-                if len(mover_details[j])<len(mover_details[i]):
+                if len(mover_details[j])<=len(mover_details[i]):
                     n = 0
                     for k in range(2,len(mover_details[j])):
                         mdk = mover_details[j][k][1]+str(mover_details[j][k][2])+str(mover_details[j][k][3])
@@ -224,15 +268,18 @@ for i in range(len(mover_details)):
                             n+=1
                     if n == len(mover_details[j][2:]):
                         contained.append(j)
-
 print(len(mover_details))
 print(len(contained))
 
+
 candidates = []
 for mi in range(  len(mover_details)):
-    print(mi+1,len(mover_details))
+    title = str(mi+1)+'/'+str(len(mover_details))
     if mi in contained:
+        print(mi+1,len(mover_details),'Contained')
         continue
+    else:
+        print(mi+1,len(mover_details))
 
 
 
@@ -250,7 +297,8 @@ for mi in range(  len(mover_details)):
 
 
 
-    fig = pyl.figure('Blinky',figsize=(26,13))
+    fig = pyl.figure('Blinky',figsize=(28,13))
+    fig.patch.set_facecolor('0.6')
 
     possDrawing = False
     possCounter = 0
@@ -271,11 +319,22 @@ for mi in range(  len(mover_details)):
     decs = []
     for i,im in enumerate(ims):
         #print(masterDir+'/*/'+im,xs[i],ys[i])
-        fn = glob.glob(masterDir+'/*/HSC-R2/corr/'+im)[0]
+        #fn = glob.glob(masterDir+'/*/HSC-R2/corr/'+im)[0]
+        if not doCTIO:
+            fn = (glob.glob('/media/fraserw/Hammer/DEC2018/*/HSC-R2/corr/'+im)+glob.glob('/media/fraserw/Thumber/DEC2018_also/*/HSC-R2/corr/'+im))[0]
+        else:
+            fn = glob.glob('/media/fraserw/Hammer/CTIO_DEC_2018/NH_?/'+im)[0]
         with fits.open(fn) as han:
-            data = han[1].data
-            header0 = han[0].header
-            header = han[1].header
+            if not doCTIO:
+                data = han[1].data
+                header0 = han[0].header
+                header = han[1].header
+            else:
+                data = han[0].data
+                header0 = han[0].header
+                header = han[0].header
+                header0['MJD'] = header['MJD-OBS']
+
         ims[i] = fn
         datas.append(data)
         wcses.append(wcs.WCS(header))
@@ -289,7 +348,9 @@ for mi in range(  len(mover_details)):
     u_jd_int = np.unique(jds.astype('int'))
     print()
     if len(ims)<8:
-        if (np.max(jds)-np.min(jds)<2 or len(u_jd_int)<3) and (doFast or doVeryFast):
+        print(np.max(jds)-np.min(jds), len(u_jd_int))
+        if (np.max(jds)-np.min(jds)<0.6 or len(u_jd_int)<2) and (doFast or doVeryFast):
+            print(np.max(jds)-np.min(jds), len(u_jd_int))
             continue
     ########
 
@@ -350,6 +411,12 @@ for mi in range(  len(mover_details)):
                 j+=1
             i+=1
 
+    if '--veryfast' in sys.argv:# or '--fast' in sys.argv:
+        print('Not drawing individual frames.')
+        subplots = []
+        subplots.append( pyl.subplot2grid((1,1), (0, 0), rowspan = 1, colspan = 1))
+
+    subplots[0].set_xlabel(title)
 
     for i,im in enumerate(ims):
         X.append([])
@@ -372,10 +439,17 @@ for mi in range(  len(mover_details)):
     Y = np.array(Y)
 
     i = 0
-    cut_width = widths[i]
-    while (np.max(X[0,:])-np.min(X[0,:]))>cut_width or (np.max(Y[0,:])-np.min(Y[0,:]))>cut_width:
-        cut_width = widths[i]
+    cut_widthx = widths[i]
+    cut_widthy = widths[i]
+    while (np.max(X[0,:])-np.min(X[0,:]))>cut_widthx:
+        cut_widthx = widths[i]
         i+=1
+    i = 0
+    while (np.max(Y[0,:])-np.min(Y[0,:]))>cut_widthy:
+        cut_widthy = widths[i]
+        i+=1
+    cut_widthx+=50
+    cut_widthy+=50
 
     for i,im in enumerate(ims):
         #print(np.median(datas[i][1850:2300,650:1390]))
@@ -383,15 +457,16 @@ for mi in range(  len(mover_details)):
         bgf = bgFinder.bgFinder(datas[i][30:A-30:10,30:B-30:10])
         bg = bgf.fraserMode()
 
-        big = np.zeros((A+cut_width*4+1,B+cut_width*4+1)).astype('float64')+bg
-        big[cut_width*2:A+cut_width*2,cut_width*2:cut_width*2+B] = datas[i]
-        cut = big[int(Y[i][0])+cut_width:int(Y[i][0])+3*cut_width,int(X[i][0])+cut_width:int(X[i][0])+3*cut_width]
+        big = np.zeros((A+cut_widthy*4+1,B+cut_widthx*4+1)).astype('float64')+bg
+        big[cut_widthy*2:A+cut_widthy*2,cut_widthx*2:cut_widthx*2+B] = datas[i]
+        cut = big[int(Y[i][0])+cut_widthy:int(Y[i][0])+3*cut_widthy,int(X[i][0])+cut_widthx:int(X[i][0])+3*cut_widthx]
+        #cut = big[int(meanPos[1])+cut_width:int(meanPos[1])+3*cut_width,int(meanPos[0])+cut_width:int(meanPos[0])+3*cut_width]
         cutouts.append(np.copy(cut))
 
 
         if len(cut) == 0:
             normers.append([])
-            normed.append(np.zeros((2*cut_width+1,2*cut_width+1)))
+            normed.append(np.zeros((2*cut_widthy+1,2*cut_widthx+1)))
         else:
             (z1,z2) = numdisplay.zscale.zscale(cutouts[-1], contrast = contrast)
             normers.append( interval.ManualInterval(z1,z2))
@@ -413,15 +488,17 @@ for mi in range(  len(mover_details)):
 
     distantCandidate = False
     counter = 0
-    draw(subplots,normed,counter,xs,ys,X,Y,cut_width)
+    draw(subplots,normed,counter,xs,ys,X,Y,cut_widthx,cut_widthy)
 
     patches = []
     for i in range(len(cutouts)):
-        subplots[i+1].imshow(normed[i])
-        subplots[i+1].set_ylim(subplots[i+1].get_ylim()[::-1])
-        #print(cut_width+(xs[i]-X[0][i]),cut_width+(ys[i]-Y[0][i]))
-        patches.append(Circle((cut_width+(xs[i]-X[i][0]),cut_width+(ys[i]-Y[i][0])),radius=30, lw = 1.5,edgecolor='r',facecolor='none'))
-        subplots[i+1].add_patch(patches[-1])
+        if len(subplots)>1:
+            subplots[i+1].imshow(normed[i])
+            subplots[i+1].set_ylim(subplots[i+1].get_ylim()[::-1])
+            #print(cut_width+(xs[i]-X[0][i]),cut_width+(ys[i]-Y[0][i]))
+        patches.append(Circle((cut_widthx+(xs[i]-X[i][0]),cut_widthy+(ys[i]-Y[i][0])),radius=30, lw = 1.5,edgecolor='r',facecolor='none'))
+        if len(subplots)>1:
+            subplots[i+1].add_patch(patches[-1])
     #exit()
     patches[0].set_edgecolor('y')
     cid = fig.canvas.mpl_connect('key_press_event', blinky)
@@ -443,6 +520,7 @@ candCutsDir = candidatesPath+'/'+str(bn)
 if not path.exists(candCutsDir):
     os.mkdir(candCutsDir)
 
+print(bf)
 for k,mi in enumerate(candidates):
 
     if not path.exists(candCutsDir+'/'+str(mi)):
@@ -471,7 +549,8 @@ for k,mi in enumerate(candidates):
     wcses = []
     for i,im in enumerate(ims):
         #print(masterDir+'/*/'+im,xs[i],ys[i])
-        fn = glob.glob(masterDir+'/*/HSC-R2/corr/'+im)[0]
+        #fn = glob.glob(masterDir+'/*/HSC-R2/corr/'+im)[0]
+        fn = (glob.glob('/media/fraserw/Hammer/DEC2018/*/HSC-R2/corr/'+im)+glob.glob('/media/fraserw/Thumber/DEC2018_also/*/HSC-R2/corr/'+im))[0]
         with fits.open(fn) as han:
             data = han[1].data
             header0 = han[0].header
@@ -491,9 +570,9 @@ for k,mi in enumerate(candidates):
         bgf = bgFinder.bgFinder(datas[i][30:A-30:10,30:B-30:10])
         bg = bgf.fraserMode()
 
-        big = np.zeros((A+cut_width*4+1,B+cut_width*4+1)).astype('float64')+bg
-        big[cut_width*2:A+cut_width*2,cut_width*2:cut_width*2+B] = datas[i]
-        cut = big[int(ys[i])+cut_width:int(ys[i])+3*cut_width,int(xs[i])+cut_width:int(xs[i])+3*cut_width]
+        big = np.zeros((A+cut_widthy*4+1,B+cut_widthx*4+1)).astype('float64')+bg
+        big[cut_widthy*2:A+cut_widthy*2,cut_widthx*2:cut_widthx*2+B] = datas[i]
+        cut = big[int(ys[i])+cut_widthy:int(ys[i])+3*cut_widthy,int(xs[i])+cut_widthx:int(xs[i])+3*cut_widthx]
         cutouts.append(np.copy(cut))
 
 
@@ -505,3 +584,4 @@ for k,mi in enumerate(candidates):
 
     for i in range(len(ims)):
         fits.writeto(candCutsDir+'/'+str(mi)+'/'+str(i)+'.fits', cutouts[i], overwrite=True)
+print()

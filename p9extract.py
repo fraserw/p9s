@@ -13,7 +13,6 @@ import pickle
 from trippy import scamp,bgFinder
 
 from catObj import catObj
-apertures = {2:0,3:0,4:0,5:0,6:1,7:1,8:2,9:2,10:3,11:3,12:4,13:4,14:4,15:4,16:4,17:4,18:4,19:4,20:4}
 
 
 def getMeanMagDiff(maper,diff,bwidth = 1, returnMax = False):
@@ -59,6 +58,8 @@ def getMeanMagDiff(maper,diff,bwidth = 1, returnMax = False):
 
 def runSex(file,fn,chip,mask_file,svsPath,showProgress = False, verbose =  False, includeImageMask = False, kron_cut = -0.5, runSextractor=True):
 
+    badflags = 1+512+8+64+16+4+256+2+128+4096
+
     if path.isfile(mask_file):
         mask = mask_file+'[0]'
 
@@ -81,19 +82,24 @@ def runSex(file,fn,chip,mask_file,svsPath,showProgress = False, verbose =  False
         if includeImageMask:
             han2 = han[2].data
             if mask_data is None:
-                mask_data = np.ones(han2.shape).astype(han2.dtype)
+                mask_data = np.zeros(han2.shape).astype(han2.dtype)
 
-
-            w = np.where((han2>32)|(han2==12)) #12 is cosmic rays, everything above 32 seems to be saturation
+            #good pixels in sextractor have mask value == 1, bad have mask value==0
+            """
+            w = np.where((han2>2080)|(han2==12)|(han2==5)|(han2==1024)) #12 is cosmic rays, everything above 32 seems to be saturation or bad columns
             try:
                 mask_data[w] = 0.0
-
+            """
+            w = np.where(((han2 & badflags) == 0)) #good pixels
+            try:
+                mask_data[w] = 1
             except:
                 print(np.max(w[0]),np.max(w[1]))
                 exit()
 
             if runSextractor:
                 fits.writeto(file+'.mask',mask_data,overwrite = True)
+
             mask = file+'.mask'
 
         if showProgress:
@@ -135,19 +141,29 @@ def runSex(file,fn,chip,mask_file,svsPath,showProgress = False, verbose =  False
         catalog[key] = catalog[key][w]
 
 
+    if chip<100:
+        x_high = 2045
+        y_high = 4173
+    else:
+        print('Chip>100')
+        x_high = 4173
+        y_high = 2045
+
+
     if catObject.seeing <= 0:
         #need to estimate seeing because header value is non-sense
         #use all snr>40 sources, and take the median FWHM_IMAGE value
-        FWHM_IMAGE = np.sort(catalog['FWHM_IMAGE'][np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) & (catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum]>40) )])
+        FWHM_IMAGE = np.sort(catalog['FWHM_IMAGE'][np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<x_high-50) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<y_high-50) & (catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum]>40) )])
         #fwhm_mode = FWHM_IMAGE[len(FWHM_IMAGE)/2]
         fwhm_median = np.median(FWHM_IMAGE)
         catObject.seeing = fwhm_median
-        apNum = apertures[round(catObject.seeing)]
+        apNum = apertures[int(round(catObject.seeing))]
 
 
 
     #setup cut on Kron magnitude, by getting the median difference between kron and aperture magnitude for star-like objects.
-    w = np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<1995) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<4123) &  ((catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum])>40) & (catalog['FWHM_IMAGE']>1.5))
+    #avoid the edges
+    w = np.where((catalog['X_IMAGE']>50) & (catalog['X_IMAGE']<x_high-50) & (catalog['Y_IMAGE']>50) & (catalog['Y_IMAGE']<y_high-50) &  ((catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum])>40) & (catalog['FWHM_IMAGE']>1.5))
 
     mag_aper = -2.5*np.log10(catalog['FLUX_APER(9)'][:,apNum][w]/header['EXPTIME'])+header['MAGZERO']
     mag_auto = -2.5*np.log10(catalog['FLUX_AUTO'][w]/header['EXPTIME'])+header['MAGZERO']
@@ -163,9 +179,9 @@ def runSex(file,fn,chip,mask_file,svsPath,showProgress = False, verbose =  False
     #cut on position, SNR, and FWHM
     snr = catalog['FLUX_APER(9)'][:,apNum]/catalog['FLUXERR_APER(9)'][:,apNum]
     if catObject.seeing>0:
-        w = np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<2045) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<4173) & (catalog['FWHM_IMAGE']<catObject.seeing*5.0) & (snr>3) & (catalog['FWHM_IMAGE']>1.5) & (catalog['A_IMAGE']>1.0) & (catalog['B_IMAGE']>1.0) )
+        w = np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<x_high) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<y_high) & (catalog['FWHM_IMAGE']<catObject.seeing*5.0) & (snr>3) & (catalog['FWHM_IMAGE']>1.5) & (catalog['A_IMAGE']>1.0) & (catalog['B_IMAGE']>1.0) )
     else:
-        w = np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<2045) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<4173) & (catalog['FWHM_IMAGE']<10.0) & (snr>3) & (catalog['FWHM_IMAGE']>1.5) & (catalog['A_IMAGE']>1.5) & (catalog['B_IMAGE']>1.0) ) #now measured in arcseconds rather than in units of FWHM
+        w = np.where((catalog['X_IMAGE']>3) & (catalog['X_IMAGE']<x_high) & (catalog['Y_IMAGE']>3) & (catalog['Y_IMAGE']<y_high) & (catalog['FWHM_IMAGE']<10.0) & (snr>3) & (catalog['FWHM_IMAGE']>1.5) & (catalog['A_IMAGE']>1.5) & (catalog['B_IMAGE']>1.0) ) #now measured in arcseconds rather than in units of FWHM
 
 
 
@@ -296,15 +312,13 @@ if __name__ == "__main__":
     runSextractor = True
 
     savesPath = sourceDir+'/sexSaves/'
-
-    Files = glob.glob(sourceDir+'/*fits')
+    Files = glob.glob(sourceDir+'/CORR-0154074*.fits')
     Files.sort()
-
 
     if not path.exists(savesPath):
         os.mkdir(savesPath)
 
-    overWrite = True
+    overWrite = False
     if not overWrite:
         files = []
         for i in range(len(Files)):
@@ -341,6 +355,9 @@ if __name__ == "__main__":
             chip = int(float( fn.split('-')[2].split('.')[0]))
             file = files[i]
 
+            if chip<=100:
+                continue
+
             #if file!='/media/fraserw/Thumber/FEB2018/02231/HSC-R2/corr/CORR-0139062-091.fits': continue
             print(file)
             mask_file = '/home/fraserw/idl_progs/hscp9/sextract/mask'+str(chip).zfill(3)+'.fits'
@@ -351,7 +368,7 @@ if __name__ == "__main__":
         exit()
 
     else:
-        numCores = 11
+        numCores = 2
 
 
         #attempt at multiprocessing with runSex which seems to fail
